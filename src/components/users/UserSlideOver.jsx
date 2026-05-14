@@ -2,24 +2,12 @@ import React from 'react';
 import { X } from 'lucide-react';
 import Toggle from '../common/Toggle';
 import Select from '../common/Select';
-
-// UUDET LISTAT ERIKSEEN
-const CIRCLE_OPTIONS = [
-  { value: 'tuttu', label: 'Tuttu' },
-  { value: 'kaveri', label: 'Kaveri' },
-  { value: 'ystava', label: 'Ystävä' },
-  { value: 'sukulainen', label: 'Sukulainen' },
-  { value: 'perhe', label: 'Perhe' }
-];
-
-const ROLE_OPTIONS = [
-  { value: 'user', label: 'Käyttäjä (User)' },
-  { value: 'moderator', label: 'Moderaattori' },
-  { value: 'admin', label: 'Admin' },
-  { value: 'superadmin', label: 'Superadmin' }
-];
+import { useSentinel } from '../../context/SentinelContext'; // TUODAAN SENTINEL
 
 function UserSlideOver({ isOpen, onClose, user, modules, currentUserRole, onTogglePermission, onRoleChange, onCircleChange }) {
+  // TUODAAN DYNAAMISET LISTAT
+  const { circleOptions, roleOptions } = useSentinel();
+
   if (!isOpen || !user) return null;
 
   const perms = user.permissions || {};
@@ -42,23 +30,21 @@ function UserSlideOver({ isOpen, onClose, user, modules, currentUserRole, onTogg
           
           <h4 className="text-label mb-4">Turvaluokitus (Sentinel)</h4>
           
-          {/* UUSI: PIIRI (Mitä dataa näkee) */}
           <div className="mb-4">
             <Select 
               label="Sosiaalinen piiri (Data-näkyvyys)"
               value={user.circle || 'tuttu'}
-              options={CIRCLE_OPTIONS}
+              options={circleOptions} // DYNAAMINEN LISTA
               onChange={(newCircle) => onCircleChange(user.id, newCircle)}
               disabled={!canEditRole}
             />
           </div>
 
-          {/* VANHA: ROOLI (Mitä nappeja saa painaa) */}
           <div className="mb-8">
             <Select 
               label="Ylläpitotaso (Järjestelmäoikeudet)"
               value={user.role || 'user'}
-              options={ROLE_OPTIONS}
+              options={roleOptions} // DYNAAMINEN LISTA
               onChange={(newRole) => onRoleChange(user.id, newRole)}
               disabled={!canEditRole}
             />

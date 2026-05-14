@@ -22206,41 +22206,54 @@ var dotenv = require_main4();
 var path = require("path");
 dotenv.config({ path: path.resolve(process.cwd(), ".env") });
 exports.handler = async (event, context) => {
+  const headers = {
+    "Access-Control-Allow-Origin": "*",
+    // Voit myös rajata: event.headers.origin
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Access-Control-Allow-Methods": "POST, OPTIONS"
+  };
+  if (event.httpMethod === "OPTIONS") {
+    return { statusCode: 200, headers, body: "CORS OK" };
+  }
   const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!supabaseUrl || !supabaseServiceKey) {
     return {
       statusCode: 500,
+      headers,
       body: JSON.stringify({ error: `Ymp\xE4rist\xF6muuttujat puuttuvat! URL:${!!supabaseUrl}, KEY:${!!supabaseServiceKey}` })
     };
   }
   const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
   if (event.httpMethod !== "POST") {
-    return { statusCode: 405, body: "Method Not Allowed" };
+    return { statusCode: 405, headers, body: "Method Not Allowed" };
   }
   try {
     const { email, role, circle } = JSON.parse(event.body);
     const authHeader = event.headers.authorization || event.headers.Authorization;
     if (!authHeader) {
-      return { statusCode: 401, body: JSON.stringify({ error: "Authorization puuttuu" }) };
+      return { statusCode: 401, headers, body: JSON.stringify({ error: "Authorization puuttuu" }) };
     }
     const token = authHeader.replace("Bearer ", "");
     const { data: { user: inviter }, error: authError } = await supabaseAdmin.auth.getUser(token);
     if (authError || !inviter) {
-      return { statusCode: 401, body: JSON.stringify({ error: "Istunto ei ole voimassa" }) };
+      return { statusCode: 401, headers, body: JSON.stringify({ error: "Istunto ei ole voimassa" }) };
     }
     const { data: profile, error: profileError } = await supabaseAdmin.from("profiles").select("role").eq("id", inviter.id).single();
     if (profileError || profile?.role !== "superadmin") {
-      return { statusCode: 403, body: JSON.stringify({ error: "K\xE4ytt\xF6oikeus ev\xE4tty" }) };
+      return { statusCode: 403, headers, body: JSON.stringify({ error: "K\xE4ytt\xF6oikeus ev\xE4tty" }) };
     }
+    const siteUrl = event.headers.origin || process.env.URL || "http://localhost:3000";
+    const redirectUrl = `${siteUrl}/set-password`;
     const { data: inviteData, error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(
       email,
-      // Varmista että tämä osoite täsmää sovelluksesi kanssa
-      { redirectTo: "http://localhost:3000/set-password" }
+      { redirectTo: redirectUrl }
     );
     if (inviteError) throw inviteError;
+    if (!inviteData?.user?.id) {
+      return { statusCode: 400, headers, body: JSON.stringify({ error: "K\xE4ytt\xE4j\xE4n luonti ep\xE4onnistui tai k\xE4ytt\xE4j\xE4 on jo olemassa." }) };
+    }
     const { error: dbError } = await supabaseAdmin.from("profiles").upsert([{
-      // <--- VAIHDA SANAAN UPSERT
       id: inviteData.user.id,
       email,
       role: role || "user",
@@ -22250,11 +22263,16 @@ exports.handler = async (event, context) => {
     if (dbError) throw dbError;
     return {
       statusCode: 200,
-      body: JSON.stringify({ message: "Kutsu l\xE4hetetty onnistuneesti!" })
+      headers,
+      body: JSON.stringify({
+        message: "Kutsu l\xE4hetetty onnistuneesti!",
+        redirect_used: redirectUrl
+        // Voit jättää tämän debuggausta varten tai poistaa myöhemmin
+      })
     };
   } catch (error) {
     console.error("Virhe backendiss\xE4:", error);
-    return { statusCode: 500, body: JSON.stringify({ error: error.message }) };
+    return { statusCode: 500, headers, body: JSON.stringify({ error: error.message }) };
   }
 };
 //# sourceMappingURL=invite-user.js.map

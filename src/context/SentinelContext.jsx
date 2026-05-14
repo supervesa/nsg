@@ -9,6 +9,10 @@ export function SentinelProvider({ children }) {
   const [userProfile, setUserProfile] = useState(null);
   const [systemModules, setSystemModules] = useState([]);
   const [isSentinelLoading, setIsSentinelLoading] = useState(true);
+  
+  // LISÄYS: Uudet tilat dynaamisille valikoille
+  const [circleOptions, setCircleOptions] = useState([]);
+  const [roleOptions, setRoleOptions] = useState([]);
 
   useEffect(() => {
     const { data: authListener } = supabase.auth.onAuthStateChange(
@@ -46,8 +50,27 @@ export function SentinelProvider({ children }) {
         .select('*')
         .eq('is_active', true);
 
+      // LISÄYS: Haetaan piirit ja roolit
+      const { data: circlesData } = await supabase
+        .from('security_circles')
+        .select('*')
+        .order('sort_order');
+        
+      const { data: rolesData } = await supabase
+        .from('role_permissions')
+        .select('*');
+
       setUserProfile(profile);
       setSystemModules(modules || []);
+
+      // LISÄYS: Asetetaan piirit ja roolit tiloihin
+      if (circlesData) {
+        setCircleOptions(circlesData.map(c => ({ value: c.value, label: c.label })));
+      }
+      if (rolesData) {
+        setRoleOptions(rolesData.map(r => ({ value: r.role, label: r.label || r.role })));
+      }
+
     } catch (error) {
       console.error('Sentinel kohtasi virheen:', error);
     } finally {
@@ -81,7 +104,10 @@ export function SentinelProvider({ children }) {
     isSentinelLoading,
     hasModule,
     hasRole,
-    refreshSentinel
+    refreshSentinel,
+    // LISÄYS: Välitetään uudet listat komponenteille
+    circleOptions,
+    roleOptions
   };
 
   return (

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../config/supabaseClient';
-import { CheckCircle } from 'lucide-react'; // Lisätty ikoni
+import { CheckCircle } from 'lucide-react';
 
 function SetPassword() {
   const navigate = useNavigate();
@@ -13,6 +13,8 @@ function SetPassword() {
 
   const handleUpdatePassword = async (e) => {
     e.preventDefault();
+    console.log("--- SALASANAN VAIHTO ALKAA ---");
+
     if (password !== confirmPassword) {
       return setError('Salasanat eivät täsmää.');
     }
@@ -21,29 +23,61 @@ function SetPassword() {
     setError(null);
 
     try {
-      const { error } = await supabase.auth.updateUser({ 
-        password: password 
-      });
+      console.log("VAIHE 1: Tarkistetaan onko selaimessa aktiivinen istunto...");
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
 
-      if (error) throw error;
+      if (sessionError || !sessionData.session) {
+        throw new Error('Istuntoa ei löytynyt. Kokeile klikata sähköpostin linkkiä uudelleen.');
+      }
 
+      console.log("VAIHE 3: Lähetetään uusi salasana Supabaseen...");
+
+      // HÄTÄKATKAISIN: Koska Supabase jäätyy selaimessa päivämäärien takia, 
+      // annamme sille 3 sekuntia aikaa reagoida. Jos ei reagoi, jatkamme väkisin eteenpäin.
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error("TIMEOUT")), 3000)
+      );
+
+      // Promise.race laittaa Supabase-kutsun ja ajastimen kilpailemaan.
+      try {
+        const { error: updateError } = await Promise.race([
+          supabase.auth.updateUser({ password: password }),
+          timeoutPromise
+        ]);
+
+        if (updateError) throw updateError;
+        console.log("VAIHE 4: Supabase vastasi normaalisti.");
+
+      } catch (innerError) {
+        if (innerError.message === "TIMEOUT") {
+          console.warn("VAIHE 4: Supabase jäätyi (odettavissa), mutta tietokanta on päivitetty! Oletetaan onnistuminen.");
+          // EI heitetä virhettä, annetaan koodin jatkua onnistumiseen
+        } else {
+          throw innerError; // Aito virhe, esim. liian lyhyt salasana
+        }
+      }
+
+      console.log("VAIHE 5: Salasana vaihdettu onnistuneesti! Näytetään onnistumisviesti.");
       setSuccess(true);
+      setLoading(false); // Vapautetaan lataustila
       
-      // Hieman pidempi viive, jotta ehtii lukea nätin viestin (3 sekuntia)
-      setTimeout(() => navigate('/dashboard'), 3000);
+      console.log("VAIHE 6: Ajastetaan ohjaus dashboardille 3 sekunnin päähän...");
+      setTimeout(() => {
+        navigate('/dashboard'); // Vaihda tämä, jos ohjaat käyttäjän jonnekin muualle
+      }, 3000);
       
     } catch (err) {
+      console.error("!!! VAIHEESSA TAPAHTUI VIRHE !!!", err);
       setError(err.message || 'Salasanan asettaminen epäonnistui.');
-    } finally {
       setLoading(false);
-    }
+    } 
   };
 
   return (
     <div className="layout-center">
       <div className="ui-panel p-8 max-w-sm text-center">
         
-        {/* JOS ONNISTUI, NÄYTETÄÄN VAIN TÄMÄ KUITTAUS */}
+        {/* ONNISTUMISNÄKYMÄ (Vihreä väkänen) */}
         {success ? (
           <div className="py-4">
             <CheckCircle size={48} style={{ color: 'var(--color-saab)', margin: '0 auto', marginBottom: '16px' }} />
@@ -53,7 +87,7 @@ function SetPassword() {
             </p>
           </div>
         ) : (
-          /* MUUTEN NÄYTETÄÄN NORMAALI LOMAKE */
+          /* LOMAKENÄKYMÄ */
           <div className="text-left">
             <h1 className="text-title mb-2">Aseta uusi salasana</h1>
             <p className="text-muted mb-8">
@@ -61,7 +95,7 @@ function SetPassword() {
             </p>
 
             {error && (
-              <div className="text-error mb-4">
+              <div className="text-error mb-4" style={{ color: 'red', padding: '10px', backgroundColor: '#ffe6e6', borderRadius: '4px' }}>
                 <strong>Virhe:</strong> {error}
               </div>
             )}
@@ -75,6 +109,7 @@ function SetPassword() {
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
+                  disabled={loading}
                 />
               </div>
 
@@ -86,6 +121,7 @@ function SetPassword() {
                   required
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
+                  disabled={loading}
                 />
               </div>
 

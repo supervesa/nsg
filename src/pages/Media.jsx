@@ -6,180 +6,151 @@ import Toggle from '../components/common/Toggle';
 import Select from '../components/common/Select';
 
 export default function Media() {
-  const { userProfile, refreshSentinel } = useSentinel();
+  // TUODAAN DYNAAMISET LISTAT SENTINELILTÄ
+  const { userProfile, refreshSentinel, circleOptions, roleOptions } = useSentinel();
+  
   const [users, setUsers] = useState([]);
+  const [rolePermsDB, setRolePermsDB] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  const circleOptions = [
-    { value: 'julkinen', label: 'Julkinen' },
-    { value: 'ystävät', label: 'Ystävät' },
-    { value: 'perhe', label: 'Perhe' }
-  ];
-
-  const fetchUsers = async () => {
+  // Haetaan data molemmista tauluista
+  const fetchData = async () => {
     setLoading(true);
-    const { data, error } = await supabase.from('profiles').select('*');
 
-    if (!error) {
-      const sortedUsers = (data || []).sort((a, b) => {
+    const [rolesRes, usersRes] = await Promise.all([
+      supabase.from('role_permissions').select('*'),
+      supabase.from('profiles').select('*')
+    ]);
+
+    if (!rolesRes.error) setRolePermsDB(rolesRes.data || []);
+    
+    if (!usersRes.error) {
+      const sortedUsers = (usersRes.data || []).sort((a, b) => {
         const nameA = a.full_name || a.email || '';
         const nameB = b.full_name || b.email || '';
         return nameA.localeCompare(nameB);
       });
       setUsers(sortedUsers);
-    } else {
-      console.error('Virhe käyttäjien latauksessa:', error);
     }
+    
     setLoading(false);
   };
 
   useEffect(() => {
-    fetchUsers();
+    fetchData();
   }, []);
 
-  // --- APUFUNKTIOT DATAN PARSIMISEEN ---
-  
-  // Varmistaa, että meillä on aina aito JS-objekti käsiteltävänä, vaikka kanta antaisi tekstiä
-  const getParsedPermissions = (perms) => {
-    if (typeof perms === 'string') {
-      try { return JSON.parse(perms); } catch (e) { return {}; }
-    }
-    return (typeof perms === 'object' && perms !== null) ? perms : {};
-  };
+  // --- GLOBAALIEN ROOLIEN TALLENNUS ---
+  const handleRoleToggle = async (roleName, field) => {
+    const currentRoleData = rolePermsDB.find(r => r.role === roleName) || { role: roleName };
+    const newValue = !currentRoleData[field];
 
-  // Hoitaa varsinaisen tietokantakutsun ja pakkaa datan tarvittaessa takaisin tekstiksi
-  const updatePermissionsInDB = async (userId, currentRawPermissions, newParsedPermissions) => {
-    // Jos alkuperäinen data oli tekstiä, tallennetaan se tekstinä. Muuten tallennetaan objektina.
-    const valueToSave = typeof currentRawPermissions === 'string' 
-      ? JSON.stringify(newParsedPermissions) 
-      : newParsedPermissions;
-
-    // Optimistinen päivitys UI:hin heti
-    setUsers(users.map(u => u.id === userId ? { ...u, permissions: valueToSave } : u));
+    const updatedRoles = rolePermsDB.some(r => r.role === roleName)
+      ? rolePermsDB.map(r => r.role === roleName ? { ...r, [field]: newValue } : r)
+      : [...rolePermsDB, { ...currentRoleData, [field]: newValue }];
+      
+    setRolePermsDB(updatedRoles);
 
     const { error } = await supabase
-      .from('profiles')
-      .update({ permissions: valueToSave })
-      .eq('id', userId);
+      .from('role_permissions')
+      .upsert({ role: roleName, [field]: newValue }, { onConflict: 'role' });
 
+    if (error) {
+      console.error('Virhe roolin tallennuksessa:', error.message);
+      alert('Tietokanta hylkäsi tallennuksen. Tarkista Supabasen RLS-oikeudet.');
+      fetchData();
+    } else {
+      refreshSentinel();
+    }
+  };
+
+  // --- KÄYTTÄJIEN TALLENNUS ---
+  const handleUserPermissionToggle = async (userId, currentPerms, moduleKey) => {
+    const safePerms = typeof currentPerms === 'string' 
+      ? (function(){ try { return JSON.parse(currentPerms); } catch(e) { return {}; } })() 
+      : (currentPerms || {});
+
+    const newPerms = { ...safePerms, [moduleKey]: !safePerms[moduleKey] };
+
+    const updatedUsers = users.map(u => u.id === userId ? { ...u, permissions: newPerms } : u);
+    setUsers(updatedUsers);
+
+    const { error } = await supabase.from('profiles').update({ permissions: newPerms }).eq('id', userId);
+    
     if (error) {
       console.error('Virhe tallennuksessa:', error.message);
       alert('Tietokanta hylkäsi tallennuksen.');
-      fetchUsers(); // Palautetaan vanha tila
-    } else if (userProfile?.id === userId) {
-      // Jos muokkasit omia oikeuksiasi, kerrotaan Sentinelille
-      refreshSentinel();
+      fetchData();
+    } else {
+      if (userProfile?.id === userId) {
+        refreshSentinel(); 
+      }
     }
   };
 
-  // --- KÄSITTELIJÄT ---
+  const handleCircleChange = async (userId, newCircle) => {
+    const updatedUsers = users.map(u => u.id === userId ? { ...u, circle: newCircle } : u);
+    setUsers(updatedUsers);
 
-  const handleToggleMediaAccess = (userId, rawPermissions, currentValue) => {
-    const safePerms = getParsedPermissions(rawPermissions);
-    const updatedPerms = { ...safePerms, media: currentValue };
-    updatePermissionsInDB(userId, rawPermissions, updatedPerms);
-  };
-
-  const handleToggleUpload = (userId, rawPermissions, currentValue) => {
-    const safePerms = getParsedPermissions(rawPermissions);
-    const updatedPerms = { ...safePerms, can_upload: currentValue };
-    updatePermissionsInDB(userId, rawPermissions, updatedPerms);
-  };
-
-  const handleChangeCircle = async (userId, newValue) => {
-    setUsers(users.map(u => u.id === userId ? { ...u, circle: newValue } : u));
-
-    const { error } = await supabase
-      .from('profiles')
-      .update({ circle: newValue })
-      .eq('id', userId);
-
+    const { error } = await supabase.from('profiles').update({ circle: newCircle }).eq('id', userId);
+    
     if (error) {
-      console.error('Virhe piirin päivityksessä:', error.message);
-      fetchUsers();
-    } else if (userProfile?.id === userId) {
-      refreshSentinel();
+      console.error('Virhe piirin vaihdossa:', error.message);
+      fetchData();
+    } else {
+       if (userProfile?.id === userId) refreshSentinel();
     }
   };
-
-  // --- RENDERÖINTI ---
 
   if (loading && users.length === 0) {
-    return <div className="text-technical p-8 text-center">Etsitään käyttäjiä ja oikeuksia...</div>;
+    return <div className="layout-center text-technical">Ladataan järjestelmän tietoja...</div>;
   }
 
   return (
     <div className="layout-dashboard">
-      <div className="mb-8">
-        <h2 className="text-title mb-2">Media-moduulin hallinta</h2>
-        <p className="text-technical">Hallitse NMC-sovelluksen käyttöoikeuksia, latauslupia ja turvapiirejä.</p>
+      
+      {/* ----------- YLÄOSA: GLOBAALIT ROOLIT ----------- */}
+      <div className="flex-between mb-8">
+        <div>
+          <h2 className="text-title mb-2">Globaalit Roolioikeudet</h2>
+          <p className="text-technical">Määritä mitä kukin ylläpitotaso saa tehdä järjestelmässä ylätasolla.</p>
+        </div>
       </div>
 
-      <div className="ui-panel table-wrapper">
+      <div className="ui-panel table-wrapper mb-8">
         <table className="nsg-table">
           <thead>
             <tr>
-              <th>Käyttäjä</th>
               <th>Rooli</th>
-              <th className="text-center">Pääsy Mediaan</th>
-              <th className="text-center">Latausoikeus</th>
-              <th>Turvapiiri</th>
+              <th>Latausoikeus (can_upload)</th>
+              <th>Poisto-oikeus (can_delete)</th>
             </tr>
           </thead>
           <tbody>
-            {users.map((user) => {
-              // 1. Parsitaan permissions turvallisesti lukuun
-              const permissions = getParsedPermissions(user.permissions);
-              
-              // 2. Selvitetään boolean-arvot Togleja varten
-              const hasMedia = permissions.media === true;
-              const canUpload = permissions.can_upload === true;
-              
-              const circle = user.circle || 'julkinen';
-              const isHighRole = user.role === 'admin' || user.role === 'superadmin';
+            {/* KÄYTETÄÄN DYNAAMISTA LISTAA SENTINELILTÄ */}
+            {roleOptions.map((roleOpt) => {
+              const roleData = rolePermsDB.find(r => r.role === roleOpt.value) || {};
+              const canUpload = roleData.can_upload === true;
+              const canDelete = roleData.can_delete === true;
 
               return (
-                <tr key={user.id}>
+                <tr key={roleOpt.value}>
                   <td>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                      <div className="flex-row-gap">
-                        <span className="status-dot bg-saab"></span>
-                        <span style={{ fontWeight: 500 }}>{user.full_name || 'Nimetön käyttäjä'}</span>
-                      </div>
-                      <span className="text-technical" style={{ fontSize: '0.75rem', marginLeft: '14px' }}>
-                        {user.email || user.id}
-                      </span>
-                    </div>
+                    <Badge 
+                      label={roleOpt.label} 
+                      isActive={roleOpt.value === 'admin' || roleOpt.value === 'superadmin'} 
+                    />
                   </td>
-                  
                   <td>
-                    <Badge label={user.role || 'user'} isActive={isHighRole} />
+                    <Toggle 
+                      isActive={canUpload} 
+                      onToggle={() => handleRoleToggle(roleOpt.value, 'can_upload')} 
+                    />
                   </td>
-                  
-                  <td className="text-center">
-                    <div style={{ display: 'inline-block' }}>
-                      <Toggle 
-                        checked={hasMedia} 
-                        // Pakotetaan lähettämään TÄSMÄLLEEN vastakkainen boolean, jottei Toggle-komponentti pääse sotkemaan arvoa
-                        onChange={() => handleToggleMediaAccess(user.id, user.permissions, !hasMedia)} 
-                      />
-                    </div>
-                  </td>
-                  
-                  <td className="text-center">
-                    <div style={{ display: 'inline-block' }}>
-                      <Toggle 
-                        checked={canUpload} 
-                        onChange={() => handleToggleUpload(user.id, user.permissions, !canUpload)} 
-                      />
-                    </div>
-                  </td>
-                  
                   <td>
-                    <Select 
-                      value={circle}
-                      options={circleOptions}
-                      onChange={(val) => handleChangeCircle(user.id, val)}
+                    <Toggle 
+                      isActive={canDelete} 
+                      onToggle={() => handleRoleToggle(roleOpt.value, 'can_delete')} 
                     />
                   </td>
                 </tr>
@@ -188,6 +159,93 @@ export default function Media() {
           </tbody>
         </table>
       </div>
+
+
+      {/* ----------- ALAOSA: KÄYTTÄJÄT JA POIKKEUKSET ----------- */}
+      <div className="flex-between mb-8">
+        <div>
+          <h2 className="text-title mb-2">Käyttäjäkohtaiset Oikeudet</h2>
+          <p className="text-technical">Salli pääsy Media-moduuliin (ovikoodi), aseta turvapiirit ja anna lataus-poikkeuksia.</p>
+        </div>
+      </div>
+
+      <div className="ui-panel table-wrapper">
+        <table className="nsg-table">
+          <thead>
+            <tr>
+              <th>Käyttäjä</th>
+              <th>Rooli</th>
+              <th>Pääsy Mediaan (Ovi)</th>
+              <th>Lataus (Poikkeuslupa)</th>
+              <th>Turvapiiri</th>
+            </tr>
+          </thead>
+          <tbody>
+            {users.map((user) => {
+              const perms = typeof user.permissions === 'string' 
+                ? (function(){ try { return JSON.parse(user.permissions); } catch(e) { return {}; } })() 
+                : (user.permissions || {});
+                
+              const hasMediaAccess = perms.media === true;
+              const hasSpecificUpload = perms.can_upload === true;
+              const circle = user.circle || 'tuttu';
+              
+              const userRoleData = rolePermsDB.find(r => r.role === user.role) || {};
+              const inheritsUpload = userRoleData.can_upload === true;
+
+              return (
+                <tr key={user.id}>
+                  <td>
+                    <div className="flex-row-gap">
+                      <span className="status-dot bg-saab"></span>
+                      <span className="capitalize" style={{ fontWeight: 500 }}>{user.full_name || 'Nimetön käyttäjä'}</span>
+                    </div>
+                    <div className="text-technical" style={{ paddingLeft: '18px', fontSize: '0.75rem' }}>
+                      {user.email || user.id}
+                    </div>
+                  </td>
+                  
+                  <td>
+                    <span className="capitalize text-technical">{user.role || 'user'}</span>
+                  </td>
+                  
+                  <td>
+                    <Toggle 
+                      isActive={hasMediaAccess} 
+                      onToggle={() => handleUserPermissionToggle(user.id, user.permissions, 'media')} 
+                    />
+                  </td>
+                  
+                  <td>
+                    {inheritsUpload ? (
+                      <div className="flex-row-gap">
+                        <div style={{ pointerEvents: 'none', opacity: 0.7 }}>
+                          <Toggle isActive={true} onToggle={() => {}} />
+                        </div>
+                        <span className="text-technical text-sm">Periytyy roolista</span>
+                      </div>
+                    ) : (
+                      <Toggle 
+                        isActive={hasSpecificUpload} 
+                        onToggle={() => handleUserPermissionToggle(user.id, user.permissions, 'can_upload')} 
+                      />
+                    )}
+                  </td>
+                  
+                  <td>
+                    <Select 
+                      value={circle}
+                      options={circleOptions} // DYNAAMINEN LISTA
+                      onChange={(newCircle) => handleCircleChange(user.id, newCircle)}
+                    />
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
     </div>
   );
 }
