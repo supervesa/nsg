@@ -1,0 +1,661 @@
+/* =========================================================
+  NSG - Keskushallinto - Perustyylit ja Komponentit
+  Päivitetty: 10.3.2026
+  Tyyli: "Crisp & Clean Minimalist" (Inter fontti, puhtaat kontrastit)
+=========================================================
+*/
+
+/* =========================================================
+  1. VÄRIT JA TEEMA
+=========================================================
+*/
+:root {
+  --color-bg-clean: #F8F9FA;      
+  --color-surface: #FFFFFF;       
+  --color-lancia: #DCD7CE;        
+  
+  --color-hermes: #FA5B00;        
+  --color-neon: #FF5E00;          
+  --color-saab: #00CC66;          
+  --color-rosso: #C3002F;         
+  --color-electric: #0050FF;      
+  
+  --color-text-main: #1A1A1A;     
+  --color-text-muted: #6B7280;    
+  --color-text-technical: #8E94A0; 
+  
+  --shadow-subtle: 0 2px 10px rgba(0,0,0,0.02); 
+  --shadow-elegant: 0 8px 30px rgba(0,0,0,0.04); 
+}
+
+/* =========================================================
+  2. PERUSASETUKSET (Reset & Body)
+=========================================================
+*/
+body {
+    background-color: var(--color-bg-clean);
+    color: var(--color-text-main);
+    font-family: 'Inter', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    margin: 0;
+    padding: 0;
+}
+
+.smooth-transition {
+    transition: all 0.2s ease-in-out;
+}
+
+/* =========================================================
+  3. KOMPONENTIT (Laatikot ja Paneelit)
+=========================================================
+*/
+.ui-panel {
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-lancia);
+    box-shadow: var(--shadow-subtle);
+    border-radius: 8px;
+}
+
+.ui-input {
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-lancia);
+    transition: all 0.2s ease;
+    border-radius: 6px;
+    padding: 8px 12px;
+}
+
+.ui-input:focus {
+    border-color: var(--color-electric);
+    box-shadow: 0 0 0 1px var(--color-electric);
+    outline: none;
+}
+
+/* =========================================================
+  4. INDIKAATTORIT JA TILA (LED-vaikutteet)
+=========================================================
+*/
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+/* =========================================================
+  5. APULUOKAT JA RAKENNE
+=========================================================
+*/
+.hidden-view {
+    display: none !important;
+}
+
+::-webkit-scrollbar { 
+    width: 8px; 
+}
+::-webkit-scrollbar-track { 
+    background: transparent; 
+}
+::-webkit-scrollbar-thumb { 
+    background: var(--color-lancia); 
+    border-radius: 4px; 
+}
+::-webkit-scrollbar-thumb:hover { 
+    background: var(--color-text-muted); 
+}
+
+/* =========================================================
+  6. ASETTELU JA LAYOUT (Utility-luokat)
+=========================================================
+*/
+.layout-center {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+}
+
+.layout-dashboard {
+    padding: 2rem;
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.flex-between {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.flex-row-gap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.w-full {
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.max-w-sm {
+    max-width: 400px;
+    width: 100%;
+}
+
+/* Marginaalit */
+.mb-2 { margin-bottom: 0.5rem; }
+.mb-4 { margin-bottom: 1rem; }
+.mb-6 { margin-bottom: 1.5rem; }
+.mb-8 { margin-bottom: 2rem; }
+.p-8 { padding: 2rem; }
+
+/* =========================================================
+  7. TYPOGRAFIA
+=========================================================
+*/
+.text-title {
+    font-size: 1.25rem;
+    margin: 0;
+    color: var(--color-text-main);
+}
+
+.text-muted {
+    color: var(--color-text-muted);
+    font-size: 0.875rem;
+    line-height: 1.5;
+}
+
+.text-technical {
+    font-size: 0.875rem;
+    color: var(--color-text-technical);
+}
+
+.text-label {
+    display: block;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--color-text-technical);
+    font-weight: 600;
+}
+
+/* =========================================================
+  8. PAINIKKEET JA VÄRIAPULUOKAT
+=========================================================
+*/
+.btn-primary {
+    width: 100%;
+    padding: 12px;
+    background-color: var(--color-hermes);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 0.875rem;
+}
+
+.btn-primary:hover {
+    background-color: var(--color-neon);
+}
+
+.btn-secondary {
+    padding: 8px 16px;
+    cursor: pointer;
+    border: 1px solid var(--color-lancia);
+    background-color: var(--color-surface);
+    border-radius: 6px;
+    color: var(--color-text-main);
+    font-weight: 500;
+}
+
+.btn-secondary:hover {
+    background-color: var(--color-bg-clean);
+}
+
+.bg-saab { background-color: var(--color-saab); }
+
+/* =========================================================
+  9. TILAT JA VIRHEET (States & Errors)
+=========================================================
+*/
+.text-error {
+    color: var(--color-rosso);
+    font-size: 0.875rem;
+    font-weight: 500;
+    margin-bottom: 1rem;
+    padding: 10px 12px;
+    background-color: rgba(195, 0, 47, 0.05); /* Erittäin haalea punainen tausta */
+    border: 1px solid rgba(195, 0, 47, 0.2);
+    border-radius: 6px;
+}
+
+.btn-primary:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+    background-color: var(--color-text-muted); /* Muuttuu harmaaksi ladatessa */
+}
+
+.btn-primary:disabled:hover {
+    background-color: var(--color-text-muted);
+}
+
+/* =========================================================
+  11. IKONIT (Lucide React)
+=========================================================
+*/
+.icon-sm {
+    width: 14px;
+    height: 14px;
+    margin-right: 6px;
+    /* Tasaa ikonin kauniisti tekstin keskikohdan kanssa */
+    vertical-align: -2px; 
+}
+
+.flex-center {
+    display: flex;
+    align-items: center;
+}
+/* =========================================================
+  10. TAULUKOT JA MODUULIT (Tables & Badges)
+=========================================================
+*/
+.table-wrapper {
+    width: 100%;
+    overflow-x: auto;
+}
+
+.nsg-table {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: left;
+}
+
+.nsg-table th {
+    padding: 16px;
+    border-bottom: 1px solid var(--color-lancia);
+    color: var(--color-text-technical);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 600;
+}
+
+.nsg-table td {
+    padding: 16px;
+    border-bottom: 1px solid var(--color-lancia);
+    color: var(--color-text-main);
+    vertical-align: middle;
+}
+
+/* Puhdas hover-efekti ilman JavaScriptiä */
+.nsg-table tbody tr {
+    transition: background-color 0.2s ease;
+    cursor: pointer;
+}
+
+.nsg-table tbody tr:hover {
+    background-color: var(--color-bg-clean);
+}
+
+/* Moduulioikeuksien pillerit (Badges) */
+.perm-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    margin-right: 6px;
+}
+
+.perm-active {
+    background-color: rgba(0, 204, 102, 0.1); /* Saab-värin läpinäkyvä versio */
+    color: var(--color-saab);
+}
+
+.perm-inactive {
+    background-color: var(--color-bg-clean);
+    color: var(--color-text-technical);
+    opacity: 0.6;
+}
+
+/* Apuluokat */
+.btn-sm { padding: 8px 16px; width: auto; font-size: 0.875rem; }
+.text-right { text-align: right; }
+.font-mono { font-family: 'SFMono-Regular', Consolas, monospace; font-size: 11px; letter-spacing: 0.5px; }
+.capitalize { text-transform: capitalize; }
+
+/* =========================================================
+  12. SLIDEOVER JA OVERLAY (Sivupaneeli)
+=========================================================
+*/
+.overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background-color: rgba(26, 26, 26, 0.4); /* Pehmeästi tummentava tausta */
+    z-index: 40;
+    backdrop-filter: blur(2px);
+}
+
+.slideover-panel {
+    position: fixed;
+    top: 0; right: 0; bottom: 0;
+    width: 100%;
+    max-width: 400px;
+    background-color: var(--color-surface);
+    box-shadow: var(--shadow-elegant);
+    z-index: 50;
+    transform: translateX(100%); /* Oletuksena piilossa ruudun ulkopuolella */
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    display: flex;
+    flex-direction: column;
+}
+
+.slideover-open {
+    transform: translateX(0); /* Liukuu esiin */
+}
+
+.slideover-header {
+    padding: 24px;
+    border-bottom: 1px solid var(--color-lancia);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.slideover-content {
+    padding: 24px;
+    flex: 1;
+    overflow-y: auto;
+}
+
+/* Painike paneelin sulkemiseen */
+.btn-icon {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    color: var(--color-text-technical);
+    padding: 4px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn-icon:hover {
+    background-color: var(--color-bg-clean);
+    color: var(--color-text-main);
+}
+
+/* =========================================================
+  13. TOGGLE-KYTKIN
+=========================================================
+*/
+.toggle-wrapper {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 0;
+    border-bottom: 1px solid var(--color-bg-clean);
+}
+
+.toggle-switch {
+    position: relative;
+    width: 44px;
+    height: 24px;
+    background-color: var(--color-lancia);
+    border-radius: 24px;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.toggle-switch.active {
+    background-color: var(--color-saab); /* Vihreä kun päällä */
+}
+
+.toggle-knob {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 20px;
+    height: 20px;
+    background-color: white;
+    border-radius: 50%;
+    transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.toggle-switch.active .toggle-knob {
+    transform: translateX(20px); /* Nappula siirtyy oikealle */
+}
+
+/* =========================================================
+  14. MODAALI IKONIT JA PONNAHDUSIKKUNAT
+=========================================================
+*/
+.modal-wrapper {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 60;
+    padding: 1rem;
+    background-color: rgba(26, 26, 26, 0.4); /* Tummennus suoraan wrapperissa */
+    backdrop-filter: blur(2px); /* Blur-efekti taustalle */
+}
+
+.modal-panel {
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-lancia);
+    box-shadow: var(--shadow-elegant);
+    border-radius: 8px;
+    width: 100%;
+    max-width: 480px;
+    animation: modalFadeIn 0.2s ease-out forwards;
+}
+
+@keyframes modalFadeIn {
+    from { opacity: 0; transform: translateY(10px) scale(0.98); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.modal-header {
+    padding: 24px;
+    border-bottom: 1px solid var(--color-bg-clean);
+}
+
+.modal-content {
+    padding: 24px;
+}
+
+.modal-footer {
+    padding: 16px 24px;
+    background-color: var(--color-bg-clean);
+    border-top: 1px solid var(--color-lancia);
+    border-radius: 0 0 8px 8px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+}
+
+/* Yksinkertainen alasvetovalikko */
+.ui-select {
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-lancia);
+    border-radius: 6px;
+    padding: 8px 12px;
+    width: 100%;
+    transition: all 0.2s ease;
+    cursor: pointer;
+    appearance: none;
+}
+
+.ui-select:focus {
+    border-color: var(--color-electric);
+    box-shadow: 0 0 0 1px var(--color-electric);
+    outline: none;
+}
+
+/* =========================================================
+  15. ADMIN LAYOUT & NAVIGATION
+=========================================================
+*/
+.admin-layout {
+    display: flex;
+    height: 100vh;
+    overflow: hidden;
+    background-color: var(--color-bg-clean);
+}
+
+.sidebar {
+    width: 260px;
+    background-color: var(--color-surface);
+    border-right: 1px solid var(--color-lancia);
+    display: flex;
+    flex-direction: column;
+    transition: transform 0.3s ease;
+    z-index: 20;
+}
+
+.sidebar-header {
+    height: 64px;
+    display: flex;
+    align-items: center;
+    padding: 0 24px;
+    border-bottom: 1px solid var(--color-bg-clean);
+}
+
+.sidebar-nav {
+    flex: 1;
+    padding: 24px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    overflow-y: auto;
+}
+
+/* Navigaatiolinkit */
+.nav-item {
+    display: flex;
+    align-items: center;
+    padding: 10px 12px;
+    color: var(--color-text-muted);
+    text-decoration: none;
+    border-radius: 6px;
+    font-weight: 500;
+    font-size: 0.875rem;
+    transition: all 0.2s ease;
+}
+
+.nav-item:hover {
+    background-color: var(--color-bg-clean);
+    color: var(--color-text-main);
+}
+
+/* Kun linkki on aktiivinen (valittuna) */
+.nav-item.active {
+    background-color: rgba(0, 80, 255, 0.05); /* Sähkönsininen erittäin haaleana */
+    color: var(--color-electric);
+}
+
+.nav-icon {
+    margin-right: 12px;
+}
+
+.main-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.topbar {
+    height: 64px;
+    background-color: var(--color-surface);
+    border-bottom: 1px solid var(--color-lancia);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 32px;
+    z-index: 10;
+}
+
+.content-area {
+    flex: 1;
+    overflow-y: auto;
+    padding: 32px;
+}
+
+/* =========================================================
+  16. MOBIILI JA RESPONSIIVISUUS (Media Queries)
+=========================================================
+*/
+
+/* Hampurilaisvalikon nappi (piilossa työpöydällä) */
+.mobile-toggle {
+    display: none;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    color: var(--color-text-main);
+    padding: 4px;
+    margin-right: 16px;
+    border-radius: 4px;
+}
+
+.mobile-toggle:hover {
+    background-color: var(--color-bg-clean);
+}
+
+@media (max-width: 768px) {
+    /* Näytetään hampurilaisnappi */
+    .mobile-toggle {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    /* Valikko irrotetaan kiinteästä asettelusta ja piilotetaan vasemmalle */
+    .sidebar {
+        position: fixed;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        transform: translateX(-100%);
+        z-index: 50;
+        box-shadow: var(--shadow-elegant);
+    }
+
+    /* Tämä luokka lisätään, kun valikko on auki */
+    .sidebar.mobile-open {
+        transform: translateX(0);
+    }
+
+    /* Pienennetään reunoja mobiilissa */
+    .content-area {
+        padding: 16px;
+    }
+
+    .topbar {
+        padding: 0 16px;
+    }
+
+    /* Piilotetaan ei-kriittistä tekstiä, jotta yläpalkki ei mene tukkoon */
+    .hide-on-mobile {
+        display: none !important;
+    }
+
+    /* Taulukon asettelu mobiilissa (estää sivuttaissuuntaisen vierityksen rikkomasta ruutua) */
+    .ui-panel.table-wrapper {
+        border-radius: 0;
+        border-left: none;
+        border-right: none;
+        margin-left: -16px;
+        margin-right: -16px;
+        width: calc(100% + 32px);
+    }
+}
