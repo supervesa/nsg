@@ -7,7 +7,7 @@ import { SentinelProvider } from './context/SentinelContext';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import SetPassword from './pages/SetPassword';
-import Media from './pages/Media'; // UUSI: Tuodaan Media-sivu
+import Media from './pages/media'; // UUSI: Tuodaan Media-sivu
 import ProtectedRoute from './components/layout/ProtectedRoute';
 import AdminLayout from './components/layout/AdminLayout';
 
