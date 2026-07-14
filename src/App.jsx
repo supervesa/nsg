@@ -27,7 +27,14 @@ function App() {
             <Route path="/settings" element={<div className="p-8">Asetukset tulossa...</div>} />
           </Route>
           
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+          <Route 
+            path="/" 
+            element={
+              window.location.hash.includes('type=recovery') || window.location.hash.includes('type=invite')
+                ? <Navigate to="/set-password" replace />
+                : <Navigate to="/dashboard" replace />
+            } 
+          />
         </Routes>
       </Router>
     </SentinelProvider>

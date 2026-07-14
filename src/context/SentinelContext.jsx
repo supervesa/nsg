@@ -22,7 +22,8 @@ export function SentinelProvider({ children }) {
           // tai palautukseen, estetään raskaiden tietojen lataus ja ruuhka.
           // Annetaan SetPassword-sivun hoitaa työnsä rauhassa.
           if (event === 'USER_UPDATED' || event === 'PASSWORD_RECOVERY') {
-            console.log('Sentinel: Tunnistettiin salasanatapahtuma, odotetaan hiljaa.');
+            console.log('Sentinel: Tunnistettiin salasanatapahtuma, vapautetaan UI ja odotetaan hiljaa.');
+            setIsSentinelLoading(false); // Vapauttaa latausruudun!
             return; 
           }
 
