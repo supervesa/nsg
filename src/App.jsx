@@ -7,7 +7,7 @@ import { SentinelProvider } from './context/SentinelContext';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import SetPassword from './pages/SetPassword';
-import Media from './pages/media'; // UUSI: Tuodaan Media-sivu
+import Media from './pages/media'; 
 import ProtectedRoute from './components/layout/ProtectedRoute';
 import AdminLayout from './components/layout/AdminLayout';
 
@@ -21,20 +21,13 @@ function App() {
           
           <Route element={<ProtectedRoute><AdminLayout /></ProtectedRoute>}>
             <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/media" element={<Media />} /> {/* PÄIVITETTY: Kytketään oikea komponentti */}
+            <Route path="/media" element={<Media />} /> 
             <Route path="/jobs" element={<div className="p-8">Työt-moduuli tulossa...</div>} />
             <Route path="/fitness" element={<div className="p-8">Kuntoilu-moduuli tulossa...</div>} />
             <Route path="/settings" element={<div className="p-8">Asetukset tulossa...</div>} />
           </Route>
           
-          <Route 
-            path="/" 
-            element={
-              window.location.hash.includes('type=recovery') || window.location.hash.includes('type=invite')
-                ? <Navigate to="/set-password" replace />
-                : <Navigate to="/dashboard" replace />
-            } 
-          />
+          <Route path="/" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </Router>
     </SentinelProvider>

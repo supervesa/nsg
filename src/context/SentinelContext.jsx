@@ -18,16 +18,24 @@ export function SentinelProvider({ children }) {
       async (event, session) => {
         if (session?.user) {
           
-          // KORJAUS TÄSSÄ: Jos tapahtuma liittyy vain salasanan päivitykseen
-          // tai palautukseen, estetään raskaiden tietojen lataus ja ruuhka.
-          // Annetaan SetPassword-sivun hoitaa työnsä rauhassa.
-          if (event === 'USER_UPDATED' || event === 'PASSWORD_RECOVERY') {
-            console.log('Sentinel: Tunnistettiin salasanatapahtuma, vapautetaan UI ja odotetaan hiljaa.');
-            setIsSentinelLoading(false); // Vapauttaa latausruudun!
+          // 1. TÄYDELLINEN SALASANAN VAIHTO-OHJAUS (PAKOTETTU LIIKENNE)
+          if (event === 'PASSWORD_RECOVERY') {
+            console.log('Sentinel: Tunnistettiin palautus! Ohitetaan kojelauta ja viedään set-password-sivulle.');
+            if (window.location.pathname !== '/set-password') {
+              window.location.href = '/set-password';
+            }
+            setIsSentinelLoading(false);
             return; 
           }
 
-          // Kaikissa muissa tapauksissa (kuten INITIAL_SESSION tai SIGNED_IN), ladataan data.
+          // 2. Kun salasana ON vaihdettu tietokantaan onnistuneesti (Hiljaisuus)
+          if (event === 'USER_UPDATED') {
+            console.log('Sentinel: Käyttäjäpäivitys valmis (esim. salasana).');
+            setIsSentinelLoading(false);
+            return;
+          }
+
+          // 3. Kaikki muu normaali kirjautuminen:
           await loadSentinelData(session.user.id, false);
         } else {
           setUserProfile(null);
