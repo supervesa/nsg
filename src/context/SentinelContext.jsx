@@ -2,7 +2,6 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { supabase } from '../config/supabaseClient';
 
 const SentinelContext = createContext();
-
 const ROLE_HIERARCHY = ['user', 'moderator', 'admin', 'superadmin'];
 
 export function SentinelProvider({ children }) {
@@ -18,24 +17,18 @@ export function SentinelProvider({ children }) {
       async (event, session) => {
         if (session?.user) {
           
-          // 1. TÄYDELLINEN SALASANAN VAIHTO-OHJAUS (PAKOTETTU LIIKENNE)
+          // Nyt vain pysäytämme ikuisen luupin ja annamme App.jsx:n ohjata
           if (event === 'PASSWORD_RECOVERY') {
-            console.log('Sentinel: Tunnistettiin palautus! Ohitetaan kojelauta ja viedään set-password-sivulle.');
-            if (window.location.pathname !== '/set-password') {
-              window.location.href = '/set-password';
-            }
+            console.log('Sentinel: Tunnistettiin palautus, poistetaan lataus ja annetaan periksi reitittimelle.');
             setIsSentinelLoading(false);
             return; 
           }
 
-          // 2. Kun salasana ON vaihdettu tietokantaan onnistuneesti (Hiljaisuus)
           if (event === 'USER_UPDATED') {
-            console.log('Sentinel: Käyttäjäpäivitys valmis (esim. salasana).');
             setIsSentinelLoading(false);
             return;
           }
 
-          // 3. Kaikki muu normaali kirjautuminen:
           await loadSentinelData(session.user.id, false);
         } else {
           setUserProfile(null);
