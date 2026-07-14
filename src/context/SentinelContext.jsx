@@ -10,7 +10,6 @@ export function SentinelProvider({ children }) {
   const [systemModules, setSystemModules] = useState([]);
   const [isSentinelLoading, setIsSentinelLoading] = useState(true);
   
-  // LISÄYS: Uudet tilat dynaamisille valikoille
   const [circleOptions, setCircleOptions] = useState([]);
   const [roleOptions, setRoleOptions] = useState([]);
 
@@ -18,7 +17,16 @@ export function SentinelProvider({ children }) {
     const { data: authListener } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         if (session?.user) {
-          // Ensimmäinen lataus, isBackground = false
+          
+          // KORJAUS TÄSSÄ: Jos tapahtuma liittyy vain salasanan päivitykseen
+          // tai palautukseen, estetään raskaiden tietojen lataus ja ruuhka.
+          // Annetaan SetPassword-sivun hoitaa työnsä rauhassa.
+          if (event === 'USER_UPDATED' || event === 'PASSWORD_RECOVERY') {
+            console.log('Sentinel: Tunnistettiin salasanatapahtuma, odotetaan hiljaa.');
+            return; 
+          }
+
+          // Kaikissa muissa tapauksissa (kuten INITIAL_SESSION tai SIGNED_IN), ladataan data.
           await loadSentinelData(session.user.id, false);
         } else {
           setUserProfile(null);
@@ -32,7 +40,6 @@ export function SentinelProvider({ children }) {
     };
   }, []);
 
-  // Lisätty isBackground-parametri. Jos true, UI ei mene lataustilaan.
   const loadSentinelData = async (userId, isBackground = false) => {
     if (!isBackground) {
       setIsSentinelLoading(true);
@@ -50,7 +57,6 @@ export function SentinelProvider({ children }) {
         .select('*')
         .eq('is_active', true);
 
-      // LISÄYS: Haetaan piirit ja roolit
       const { data: circlesData } = await supabase
         .from('security_circles')
         .select('*')
@@ -63,7 +69,6 @@ export function SentinelProvider({ children }) {
       setUserProfile(profile);
       setSystemModules(modules || []);
 
-      // LISÄYS: Asetetaan piirit ja roolit tiloihin
       if (circlesData) {
         setCircleOptions(circlesData.map(c => ({ value: c.value, label: c.label })));
       }
@@ -78,11 +83,9 @@ export function SentinelProvider({ children }) {
     }
   };
 
-  // Pehmeä päivitys taustalla (Soft Save)
   const refreshSentinel = async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (user) {
-      // Lähetetään true, jotta Sentinel tietää tämän olevan hiljainen taustapäivitys
       await loadSentinelData(user.id, true);
     }
   };
@@ -105,7 +108,6 @@ export function SentinelProvider({ children }) {
     hasModule,
     hasRole,
     refreshSentinel,
-    // LISÄYS: Välitetään uudet listat komponenteille
     circleOptions,
     roleOptions
   };

@@ -19,56 +19,46 @@ function SetPassword() {
       return setError('Salasanat eivät täsmää.');
     }
 
+    if (password.length < 6) {
+      return setError('Salasanan täytyy olla vähintään 6 merkkiä pitkä.');
+    }
+
     setLoading(true);
     setError(null);
 
     try {
-      console.log("VAIHE 1: Tarkistetaan onko selaimessa aktiivinen istunto...");
+      console.log("Vaihe 1: Tarkistetaan aktiivinen URL-istunto tai kutsu-token...");
+      // Hakee luotettavasti session myös URL:n kätketystä hash-koodista 
+      // (ensimmäinen kirjautuminen & unohtunut salasana)
       const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
 
       if (sessionError || !sessionData.session) {
-        throw new Error('Istuntoa ei löytynyt. Kokeile klikata sähköpostin linkkiä uudelleen.');
+        throw new Error('Istunto on vanhentunut tai puuttuu. Kokeile klikata sähköpostissa olevaa linkkiä uudelleen.');
       }
 
-      console.log("VAIHE 3: Lähetetään uusi salasana Supabaseen...");
+      console.log("Vaihe 2: Istunto OK, lähetetään uusi salasana tietokantaan...");
+      // HUOM! Täällä ei ole enää 3 sekunnin hätäkatkaisinta. Annetaan Supabasen tehdä
+      // rauhassa työnsä, nettiyhteyden laadusta riippumatta. Sentinel pysyy hiljaa taustalla.
+      const { error: updateError } = await supabase.auth.updateUser({ 
+        password: password 
+      });
 
-      // HÄTÄKATKAISIN: Koska Supabase jäätyy selaimessa päivämäärien takia, 
-      // annamme sille 3 sekuntia aikaa reagoida. Jos ei reagoi, jatkamme väkisin eteenpäin.
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error("TIMEOUT")), 3000)
-      );
-
-      // Promise.race laittaa Supabase-kutsun ja ajastimen kilpailemaan.
-      try {
-        const { error: updateError } = await Promise.race([
-          supabase.auth.updateUser({ password: password }),
-          timeoutPromise
-        ]);
-
-        if (updateError) throw updateError;
-        console.log("VAIHE 4: Supabase vastasi normaalisti.");
-
-      } catch (innerError) {
-        if (innerError.message === "TIMEOUT") {
-          console.warn("VAIHE 4: Supabase jäätyi (odettavissa), mutta tietokanta on päivitetty! Oletetaan onnistuminen.");
-          // EI heitetä virhettä, annetaan koodin jatkua onnistumiseen
-        } else {
-          throw innerError; // Aito virhe, esim. liian lyhyt salasana
-        }
-      }
-
-      console.log("VAIHE 5: Salasana vaihdettu onnistuneesti! Näytetään onnistumisviesti.");
-      setSuccess(true);
-      setLoading(false); // Vapautetaan lataustila
+      // Jos tulee error (esim token hylätty palvelimella), kaadutaan siististi catch-lohkoon
+      if (updateError) throw updateError;
       
-      console.log("VAIHE 6: Ajastetaan ohjaus dashboardille 3 sekunnin päähän...");
+      console.log("Vaihe 3: Tietokanta vastasi ONNISTUI!");
+      setSuccess(true);
+      setLoading(false); 
+      
+      // Ohjataan tyylikkäästi suoraan Dashboardille 3 sekunnin kuluessa
       setTimeout(() => {
-        navigate('/dashboard'); // Vaihda tämä, jos ohjaat käyttäjän jonnekin muualle
+        navigate('/dashboard', { replace: true });
       }, 3000);
       
     } catch (err) {
-      console.error("!!! VAIHEESSA TAPAHTUI VIRHE !!!", err);
-      setError(err.message || 'Salasanan asettaminen epäonnistui.');
+      console.error("Vika salasanan vaihdossa:", err);
+      // Supabase-virhe voi joskus olla englanniksi. Voi jatkossa lokalisoida tähän paremmin
+      setError(err.message || 'Salasanan asettaminen epäonnistui. Yritä uudelleen.');
       setLoading(false);
     } 
   };
@@ -77,7 +67,6 @@ function SetPassword() {
     <div className="layout-center">
       <div className="ui-panel p-8 max-w-sm text-center">
         
-        {/* ONNISTUMISNÄKYMÄ (Vihreä väkänen) */}
         {success ? (
           <div className="py-4">
             <CheckCircle size={48} style={{ color: 'var(--color-saab)', margin: '0 auto', marginBottom: '16px' }} />
@@ -87,7 +76,6 @@ function SetPassword() {
             </p>
           </div>
         ) : (
-          /* LOMAKENÄKYMÄ */
           <div className="text-left">
             <h1 className="text-title mb-2">Aseta uusi salasana</h1>
             <p className="text-muted mb-8">
@@ -95,7 +83,7 @@ function SetPassword() {
             </p>
 
             {error && (
-              <div className="text-error mb-4" style={{ color: 'red', padding: '10px', backgroundColor: '#ffe6e6', borderRadius: '4px' }}>
+              <div className="text-error mb-4" style={{ padding: '10px', backgroundColor: '#ffe6e6', borderRadius: '4px' }}>
                 <strong>Virhe:</strong> {error}
               </div>
             )}
