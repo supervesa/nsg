@@ -10,6 +10,8 @@ import SetPassword from './pages/SetPassword';
 import Media from './pages/media'; 
 import ProtectedRoute from './components/layout/ProtectedRoute';
 import AdminLayout from './components/layout/AdminLayout';
+// UUSI SIVU TUODAAN TÄSSÄ:
+import Launchpad from './pages/server'; 
 
 // =========================================================
 // VOITTAMATON SIEPPAUS (Global Photocopy)
@@ -41,6 +43,9 @@ function App() {
             <Route path="/jobs" element={<div className="p-8">Työt-moduuli tulossa...</div>} />
             <Route path="/fitness" element={<div className="p-8">Kuntoilu-moduuli tulossa...</div>} />
             <Route path="/settings" element={<div className="p-8">Asetukset tulossa...</div>} />
+            
+            {/* UUSI SIVU LISÄTÄÄN TÄHÄN: */}
+            <Route path="/server" element={<Launchpad />} />
           </Route>
           
           {/* Jos sieppari löysi koodin ladattaessa, pakotetaan käyttöliittymä 

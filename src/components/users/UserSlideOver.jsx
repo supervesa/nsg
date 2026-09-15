@@ -2,15 +2,18 @@ import React from 'react';
 import { X } from 'lucide-react';
 import Toggle from '../common/Toggle';
 import Select from '../common/Select';
-import { useSentinel } from '../../context/SentinelContext'; // TUODAAN SENTINEL
+import { useSentinel } from '../../context/SentinelContext'; 
 
 function UserSlideOver({ isOpen, onClose, user, modules, currentUserRole, onTogglePermission, onRoleChange, onCircleChange }) {
-  // TUODAAN DYNAAMISET LISTAT
   const { circleOptions, roleOptions } = useSentinel();
 
   if (!isOpen || !user) return null;
 
-  const perms = user.permissions || {};
+  // Varmistetaan JSON-objektin muoto
+  const perms = typeof user.permissions === 'string' 
+    ? JSON.parse(user.permissions || '{}') 
+    : (user.permissions || {});
+
   const canEditRole = currentUserRole === 'superadmin' || (currentUserRole === 'admin' && user.role !== 'superadmin');
 
   return (
@@ -34,7 +37,7 @@ function UserSlideOver({ isOpen, onClose, user, modules, currentUserRole, onTogg
             <Select 
               label="Sosiaalinen piiri (Data-näkyvyys)"
               value={user.circle || 'tuttu'}
-              options={circleOptions} // DYNAAMINEN LISTA
+              options={circleOptions} 
               onChange={(newCircle) => onCircleChange(user.id, newCircle)}
               disabled={!canEditRole}
             />
@@ -44,7 +47,7 @@ function UserSlideOver({ isOpen, onClose, user, modules, currentUserRole, onTogg
             <Select 
               label="Ylläpitotaso (Järjestelmäoikeudet)"
               value={user.role || 'user'}
-              options={roleOptions} // DYNAAMINEN LISTA
+              options={roleOptions} 
               onChange={(newRole) => onRoleChange(user.id, newRole)}
               disabled={!canEditRole}
             />
@@ -64,6 +67,18 @@ function UserSlideOver({ isOpen, onClose, user, modules, currentUserRole, onTogg
               onToggle={() => onTogglePermission(user.id, perms, mod.key)}
             />
           ))}
+
+          {/* ERILLINEN OSIO KRITIIKKIOIKEUKSILLE */}
+          <div style={{ height: '1px', backgroundColor: 'var(--color-bg-clean)', margin: '24px 0' }}></div>
+          
+          <h4 className="text-label mb-4 text-red-600">Kriittiset järjestelmäoikeudet</h4>
+          <Toggle 
+            label="Palvelinterminaali" 
+            description="Oikeus laukaista suora etäyhteys palvelimen ytimeen."
+            iconName="Terminal"
+            isActive={perms.terminal || false}
+            onToggle={() => onTogglePermission(user.id, perms, 'terminal')}
+          />
           
         </div>
       </div>

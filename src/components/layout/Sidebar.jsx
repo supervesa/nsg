@@ -1,14 +1,13 @@
 import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { Users, Settings, LogOut, Image } from 'lucide-react'; // UUSI: Tuodaan Image-ikoni
+import { Users, Settings, LogOut, Image, Terminal } from 'lucide-react'; 
 import { supabase } from '../../config/supabaseClient';
-import { useSentinel } from '../../context/SentinelContext'; // UUSI: Tuodaan Sentinel
-import IconMapper from '../common/IconMapper'; // UUSI: Tuodaan ikonimapperi
+import { useSentinel } from '../../context/SentinelContext'; 
+import IconMapper from '../common/IconMapper'; 
 
 function Sidebar({ isOpen, onClose }) {
   const navigate = useNavigate();
-  // Haetaan Sentineliltä voimat: kuka minä olen ja mitä moduuleja on olemassa?
-  const { hasRole, hasModule, systemModules } = useSentinel();
+  const { hasRole, hasModule, systemModules, profile } = useSentinel();
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -19,7 +18,12 @@ function Sidebar({ isOpen, onClose }) {
     if (onClose) onClose();
   };
 
-  // Tarkistetaan, onko käyttäjällä oikeus YHTEENKÄÄN moduuliin (jotta tiedetään piirretäänkö "Moduulit" otsikkoa)
+  // Varmistettu oikeustarkistus Terminaalille
+  const perms = typeof profile?.permissions === 'string' 
+    ? JSON.parse(profile.permissions || '{}') 
+    : (profile?.permissions || {});
+    
+  const hasTerminalAccess = hasRole('superadmin') || perms?.terminal === true;
   const hasAnyModules = systemModules.some(mod => hasModule(mod.key));
 
   return (
@@ -30,38 +34,50 @@ function Sidebar({ isOpen, onClose }) {
 
       <nav className="sidebar-nav">
         
-        {/* HALLINTA-OSIO (Näkyy vain Admin ja Superadmin) */}
-        {hasRole('admin') && (
+        {/* HALLINTA-OSIO */}
+        {(hasRole('admin') || hasTerminalAccess) && (
           <>
             <div className="text-label mb-2" style={{ paddingLeft: '12px' }}>Hallinta</div>
-            <NavLink 
-              to="/dashboard" 
-              className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`} 
-              onClick={handleLinkClick}
-            >
-              <Users className="nav-icon" size={20} /> Käyttäjät
-            </NavLink>
             
-            {/* UUSI: Media-oikeuksien hallinta */}
-            <NavLink 
-              to="/media" 
-              className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`} 
-              onClick={handleLinkClick}
-            >
-              <Image className="nav-icon" size={20} /> Media-oikeudet
-            </NavLink>
+            {hasRole('admin') && (
+              <>
+                <NavLink 
+                  to="/dashboard" 
+                  className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`} 
+                  onClick={handleLinkClick}
+                >
+                  <Users className="nav-icon" size={20} /> Käyttäjät
+                </NavLink>
+                
+                <NavLink 
+                  to="/media" 
+                  className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`} 
+                  onClick={handleLinkClick}
+                >
+                  <Image className="nav-icon" size={20} /> Media-oikeudet
+                </NavLink>
+              </>
+            )}
+
+            {/* Terminaali-linkki */}
+            {hasTerminalAccess && (
+              <NavLink 
+                to="/server" 
+                className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`} 
+                onClick={handleLinkClick}
+              >
+                <Terminal className="nav-icon" size={20} /> Terminaali
+              </NavLink>
+            )}
           </>
         )}
         
-        {/* MODUULIT-OSIO (Piirretään dynaamisesti tietokannasta) */}
+        {/* MODUULIT-OSIO */}
         {hasAnyModules && (
           <div className="text-label mb-2" style={{ paddingLeft: '12px', marginTop: '16px' }}>Moduulit</div>
         )}
 
         {systemModules.map((mod) => {
-          // Sentinelin tarkistus: Piirretäänkö tämä kyseinen linkki tälle käyttäjälle?
-          // HUOM: Jos "media" on myös järjestelmämoduuli tietokannassa, se piirtyy tähänkin. 
-          // Halutessasi voit rajata sen pois esim. if (mod.key === 'media') return null;
           if (!hasModule(mod.key)) return null;
 
           return (
@@ -71,16 +87,14 @@ function Sidebar({ isOpen, onClose }) {
               className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`} 
               onClick={handleLinkClick}
             >
-              {/* IconMapper hakee oikean ikonin Supabasen tekstin perusteella */}
               <IconMapper name={mod.icon_name} className="nav-icon" size={20} /> {mod.label}
             </NavLink>
           );
         })}
 
-        {/* Erotin pitää alaosan napit pohjassa */}
         <div style={{ flex: 1 }}></div>
 
-        {/* ASETUKSET JA ULOSKIRJAUTUMINEN (Säilytetty täysin alkuperäisenä) */}
+        {/* ASETUKSET JA ULOSKIRJAUTUMINEN */}
         <NavLink 
           to="/settings" 
           className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`} 
