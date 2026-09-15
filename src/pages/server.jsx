@@ -66,33 +66,53 @@ export default function Launchpad() {
     window.open(`${SERVER_URL}${urlPath}`, '_blank', 'noopener,noreferrer');
   };
 
-  // HÄTÄKATKAISIN: Tuhoaa liput suoraan tietokannasta (Ohittaa evästeongelmat!)
+  // HÄTÄKATKAISIN: Seurannalla varustettu versio
   const handleKillSwitch = async () => {
+    console.log("[Kill Switch] 1. Nappia painettu, aloitetaan...");
     setIsKilling(true);
     setKillMessage(null);
+    
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      console.log("[Kill Switch] 2. Pyydetään sessiota Supabaselta...");
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
       
-      if (session?.user) {
-        const { error } = await supabase
+      if (sessionError) {
+        console.error("[Kill Switch] Virhe session haussa:", sessionError);
+        throw sessionError;
+      }
+
+      if (!session?.user) {
+        console.warn("[Kill Switch] Ei aktiivista käyttäjäsessiota, hypätään yli.");
+      } else {
+        console.log(`[Kill Switch] 3. Sessio OK (User: ${session.user.id}). Lähetetään DELETE-komento...`);
+        
+        // Tässä lähetetään komento tietokantaan
+        const { data, error } = await supabase
           .from('terminal_tickets')
           .delete()
           .eq('user_id', session.user.id);
           
-        if (error) throw error;
+        if (error) {
+          console.error("[Kill Switch] Supabase API palautti virheen:", error);
+          throw error;
+        }
+        
+        console.log("[Kill Switch] 4. DELETE onnistui!", data);
       }
       
+      console.log("[Kill Switch] 5. Päivitetään käyttöliittymän tila...");
       setKillMessage({ type: 'success', text: 'Kaikki aktiiviset Sentinel-istunnot on katkaistu turvallisesti.' });
       
-      // Nollataan käyttöliittymä (Kortit palaavat Vaiheeseen 1)
       setReadyUrls({});
       setActiveSessions({});
       
       setTimeout(() => setKillMessage(null), 5000);
+      
     } catch (err) {
-      console.error("Sentinel lipun tuhoaminen epäonnistui", err);
-      setKillMessage({ type: 'error', text: 'Virhe yhteyksien katkaisussa.' });
+      console.error("[Kill Switch] ❌ Tapahtui virhe:", err);
+      setKillMessage({ type: 'error', text: 'Virhe yhteyksien katkaisussa. Katso konsoli.' });
     } finally {
+      console.log("[Kill Switch] 6. Lopetetaan latausanimaatio.");
       setIsKilling(false);
     }
   };
