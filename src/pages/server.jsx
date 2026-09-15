@@ -13,7 +13,7 @@ export default function Launchpad() {
   const [loadingTarget, setLoadingTarget] = useState(null);
   const [errors, setErrors] = useState({});
   const [readyUrls, setReadyUrls] = useState({});
-  const [activeSessions, setActiveSessions] = useState({}); // UUSI: Muistaa, mitkä ovet on jo avattu
+  const [activeSessions, setActiveSessions] = useState({});
   const [isKilling, setIsKilling] = useState(false);
   const [killMessage, setKillMessage] = useState(null);
 
@@ -66,18 +66,25 @@ export default function Launchpad() {
     window.open(`${SERVER_URL}${urlPath}`, '_blank', 'noopener,noreferrer');
   };
 
-  // HÄTÄKATKAISIN: Tuhoaa liput palvelimelta ja nollaa kortit
+  // HÄTÄKATKAISIN: Tuhoaa liput suoraan tietokannasta (Ohittaa evästeongelmat!)
   const handleKillSwitch = async () => {
     setIsKilling(true);
     setKillMessage(null);
     try {
-      await fetch(`${SERVER_URL}/sentinel-logout`, { 
-        method: 'GET',
-        credentials: 'include' 
-      });
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (session?.user) {
+        const { error } = await supabase
+          .from('terminal_tickets')
+          .delete()
+          .eq('user_id', session.user.id);
+          
+        if (error) throw error;
+      }
+      
       setKillMessage({ type: 'success', text: 'Kaikki aktiiviset Sentinel-istunnot on katkaistu turvallisesti.' });
       
-      // NOLLATAAN KÄYTTÖLIITTYMÄ
+      // Nollataan käyttöliittymä (Kortit palaavat Vaiheeseen 1)
       setReadyUrls({});
       setActiveSessions({});
       
@@ -104,6 +111,7 @@ export default function Launchpad() {
   return (
     <div style={{ padding: '32px', maxWidth: '1000px', margin: '0 auto' }}>
       
+      {/* Otsikko ja Hätäkatkaisin */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px', marginBottom: '32px' }}>
         <div>
           <h2 className="text-title" style={{ marginBottom: '8px' }}>Launchpad</h2>
@@ -118,6 +126,7 @@ export default function Launchpad() {
         </Button>
       </div>
 
+      {/* Palauteviesti */}
       {killMessage && (
         <div style={{
           marginBottom: '24px', padding: '16px', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '12px',
@@ -130,9 +139,9 @@ export default function Launchpad() {
         </div>
       )}
 
+      {/* Korttien Grid-asettelu */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '24px' }}>
         
-        {/* Supabase Studio Kortti */}
         <LaunchCard 
           title="Supabase Studio"
           description="Täysi graafinen tietokannan ja autentikaation hallintapaneeli. Sisältää SQL-editorin ja taulujen muokkauksen."
@@ -149,7 +158,6 @@ export default function Launchpad() {
           onReturn={() => handleReturn('/')}
         />
 
-        {/* Terminaali Kortti */}
         <LaunchCard 
           title="Palvelimen Etäpääte (ttyd)"
           description="Avaa suojatun WebSocket-yhteyden Ubuntu-palvelimelle (CLI). Istunto katkaistaan automaattisesti selaimen sulkeutuessa."
