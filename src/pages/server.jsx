@@ -1,20 +1,21 @@
 import React, { useState } from 'react';
 import { supabase } from '../config/supabaseClient';
 import { useSentinel } from '../context/SentinelContext'; 
-// Tuodaan uusi hieno common-komponentti!
 import LaunchCard from '../components/common/LaunchCard';
+import Button from '../components/common/Button'; 
+import { ShieldAlert, CheckCircle } from 'lucide-react';
 
-// HUOM: Jos admin-paneelisi on Netlifyssä, window.location.origin ohjaa väärään paikkaan.
-// Käytetään siis kovaa Nginx-palvelimen osoitetta, josta Studio ja Terminaali löytyvät.
 const SERVER_URL = 'https://nsg.asuscomm.com'; 
 
 export default function Launchpad() {
   const { profile, hasRole } = useSentinel();
   
-  // Nyt seurataan, MIKÄ kortti lataa (esim. 'terminal' tai 'studio')
   const [loadingTarget, setLoadingTarget] = useState(null);
-  // Virheet tallennetaan objektiin: { terminal: 'virhe...', studio: null }
   const [errors, setErrors] = useState({});
+  const [readyUrls, setReadyUrls] = useState({});
+  const [activeSessions, setActiveSessions] = useState({}); // UUSI: Muistaa, mitkä ovet on jo avattu
+  const [isKilling, setIsKilling] = useState(false);
+  const [killMessage, setKillMessage] = useState(null);
 
   const perms = typeof profile?.permissions === 'string' 
     ? JSON.parse(profile.permissions || '{}') 
@@ -22,88 +23,147 @@ export default function Launchpad() {
 
   const hasAccess = hasRole('superadmin') || perms?.terminal === true;
 
-  // Yhteinen funktio kaikkien työkalujen käynnistämiseen
+  // VAIHE 1: Haetaan lippu
   const handleLaunch = async (targetId, dbTargetName, urlPath) => {
     setLoadingTarget(targetId);
     setErrors(prev => ({ ...prev, [targetId]: null }));
     
     try {
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      
-      if (sessionError || !session?.user) {
-        throw new Error("Käyttäjäsessio puuttuu. Kirjaudu uudelleen sisään.");
-      }
+      if (sessionError || !session?.user) throw new Error("Käyttäjäsessio puuttuu.");
 
-      // Luodaan tiketti oikealle targetille (esim. 'web-terminaali' tai 'supabase-studio')
       const { data, error: insertError } = await supabase
         .from('terminal_tickets')
-        .insert([{
-            target: dbTargetName,
-            user_id: session.user.id
-        }])
+        .insert([{ target: dbTargetName, user_id: session.user.id }])
         .select('id')
         .single();
 
       if (insertError) throw insertError;
 
       if (data && data.id) {
-        // Rakennetaan lopullinen osoite (esim. https://nsg.asuscomm.com/terminal/?ticket=123)
         const finalUrl = `${SERVER_URL}${urlPath}?ticket=${data.id}`;
-        window.open(finalUrl, '_blank', 'noopener,noreferrer');
+        setReadyUrls(prev => ({ ...prev, [targetId]: finalUrl }));
       }
     } catch (err) {
       console.error(`Sentinel: Lipun luonti epäonnistui (${targetId})`, err);
-      setErrors(prev => ({ 
-        ...prev, 
-        [targetId]: err.message || "Yhteyden luonti epäonnistui. Tarkista tietoverkko." 
-      }));
+      setErrors(prev => ({ ...prev, [targetId]: err.message || "Yhteyden luonti epäonnistui." }));
     } finally {
       setLoadingTarget(null);
     }
   };
 
+  // VAIHE 2: Käytetään lippu ja merkitään istunto aktiiviseksi
+  const handleActivate = (targetId) => {
+    window.open(readyUrls[targetId], '_blank', 'noopener,noreferrer');
+    
+    // Piilotetaan "Avaa tästä" -nappi ja laitetaan päälle "Palaa palveluun" -tila
+    setReadyUrls(prev => ({ ...prev, [targetId]: null }));
+    setActiveSessions(prev => ({ ...prev, [targetId]: true }));
+  };
+
+  // VAIHE 3: Palataan suoraan palveluun (eväste hoitaa portinvartijan)
+  const handleReturn = (urlPath) => {
+    window.open(`${SERVER_URL}${urlPath}`, '_blank', 'noopener,noreferrer');
+  };
+
+  // HÄTÄKATKAISIN: Tuhoaa liput palvelimelta ja nollaa kortit
+  const handleKillSwitch = async () => {
+    setIsKilling(true);
+    setKillMessage(null);
+    try {
+      await fetch(`${SERVER_URL}/sentinel-logout`, { 
+        method: 'GET',
+        credentials: 'include' 
+      });
+      setKillMessage({ type: 'success', text: 'Kaikki aktiiviset Sentinel-istunnot on katkaistu turvallisesti.' });
+      
+      // NOLLATAAN KÄYTTÖLIITTYMÄ
+      setReadyUrls({});
+      setActiveSessions({});
+      
+      setTimeout(() => setKillMessage(null), 5000);
+    } catch (err) {
+      console.error("Sentinel lipun tuhoaminen epäonnistui", err);
+      setKillMessage({ type: 'error', text: 'Virhe yhteyksien katkaisussa.' });
+    } finally {
+      setIsKilling(false);
+    }
+  };
+
   if (!hasAccess) {
     return (
-      <div className="p-8">
-        <h2 className="text-title text-red-600 mb-4">Pääsy evätty</h2>
-        <div className="ui-panel">
-          <p>Sinulla ei ole tarvittavia valtuuksia palvelintyökalujen käyttöön (Sentinel Level: Inadequate).</p>
+      <div style={{ padding: '32px' }}>
+        <h2 className="text-title" style={{ marginBottom: '16px', color: 'var(--color-rosso)' }}>Pääsy evätty</h2>
+        <div className="ui-panel" style={{ padding: '24px' }}>
+          <p>Sinulla ei ole tarvittavia valtuuksia palvelintyökalujen käyttöön.</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="p-8">
-      <h2 className="text-title mb-2">Launchpad</h2>
-      <p className="mb-8 text-gray-600 max-w-2xl">
-        Keskitetty hallintakeskus Sentinel-suojatuille taustajärjestelmille. 
-        Yhteydet muodostetaan kertakäyttöisillä, salatuilla lipuilla ilman erillisiä salasanoja.
-      </p>
-
-      {/* Grid-asettelu, johon on helppo lisätä kortteja vierekkäin */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl">
+    <div style={{ padding: '32px', maxWidth: '1000px', margin: '0 auto' }}>
+      
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px', marginBottom: '32px' }}>
+        <div>
+          <h2 className="text-title" style={{ marginBottom: '8px' }}>Launchpad</h2>
+          <p className="text-muted" style={{ maxWidth: '600px', margin: 0 }}>
+            Keskitetty hallintakeskus Sentinel-suojatuille taustajärjestelmille. 
+            Yhteydet muodostetaan kertakäyttöisillä, salatuilla lipuilla.
+          </p>
+        </div>
         
-        {/* KORTTI 1: Supabase Studio */}
+        <Button variant="danger" icon={ShieldAlert} onClick={handleKillSwitch} isLoading={isKilling}>
+          Sulje aktiiviset istunnot
+        </Button>
+      </div>
+
+      {killMessage && (
+        <div style={{
+          marginBottom: '24px', padding: '16px', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '12px',
+          backgroundColor: killMessage.type === 'success' ? 'rgba(0, 204, 102, 0.1)' : 'rgba(195, 0, 47, 0.1)',
+          color: killMessage.type === 'success' ? 'var(--color-saab)' : 'var(--color-rosso)',
+          border: `1px solid ${killMessage.type === 'success' ? 'rgba(0, 204, 102, 0.3)' : 'rgba(195, 0, 47, 0.3)'}`
+        }}>
+          {killMessage.type === 'success' ? <CheckCircle size={20} /> : <ShieldAlert size={20} />}
+          {killMessage.text}
+        </div>
+      )}
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '24px' }}>
+        
+        {/* Supabase Studio Kortti */}
         <LaunchCard 
           title="Supabase Studio"
           description="Täysi graafinen tietokannan ja autentikaation hallintapaneeli. Sisältää SQL-editorin ja taulujen muokkauksen."
           iconName="Database"
-          buttonText="Avaa Supabase Studio"
+          buttonText="Muodosta turvayhteys"
           isGenerating={loadingTarget === 'studio'}
           error={errors['studio']}
+          
+          readyUrl={readyUrls['studio']}
+          isActive={activeSessions['studio']}
+          
           onLaunch={() => handleLaunch('studio', 'supabase-studio', '/')}
+          onActivate={() => handleActivate('studio')}
+          onReturn={() => handleReturn('/')}
         />
 
-        {/* KORTTI 2: Palvelimen Etäpääte */}
+        {/* Terminaali Kortti */}
         <LaunchCard 
           title="Palvelimen Etäpääte (ttyd)"
-          description="Avaa suojatun WebSocket-yhteyden Ubuntu-palvelimelle (CLI). Istunto katkaistaan automaattisesti 15min inaktiivisuuden jälkeen."
+          description="Avaa suojatun WebSocket-yhteyden Ubuntu-palvelimelle (CLI). Istunto katkaistaan automaattisesti selaimen sulkeutuessa."
           iconName="Terminal"
-          buttonText="Avaa Palvelinterminaali"
+          buttonText="Muodosta turvayhteys"
           isGenerating={loadingTarget === 'terminal'}
           error={errors['terminal']}
+          
+          readyUrl={readyUrls['terminal']}
+          isActive={activeSessions['terminal']}
+          
           onLaunch={() => handleLaunch('terminal', 'web-terminaali', '/terminal/')}
+          onActivate={() => handleActivate('terminal')}
+          onReturn={() => handleReturn('/terminal/')}
         />
 
       </div>
