@@ -10,13 +10,13 @@ import SetPassword from './pages/SetPassword';
 import Media from './pages/media'; 
 import ProtectedRoute from './components/layout/ProtectedRoute';
 import AdminLayout from './components/layout/AdminLayout';
-// UUSI SIVU TUODAAN TÄSSÄ:
 import Launchpad from './pages/server'; 
+
+// 1. LISÄÄ TÄMÄ RIVI: Tuodaan uusi Koti-sivu
+import Home from './pages/home'; 
 
 // =========================================================
 // VOITTAMATON SIEPPAUS (Global Photocopy)
-// Tämä koodirivi on koodin ulkopuolella ja se suoritetaan välittömästi.
-// Nappaamme salakoodin aikomuksen kiinni ennen kuin Supabase tuhoaa sen!
 // =========================================================
 let globalIntent = '';
 if (typeof window !== 'undefined') {
@@ -27,7 +27,6 @@ if (typeof window !== 'undefined') {
 }
 
 function App() {
-  // Tallennetaan siepattu suunta lokaaliin tilaan niin, ettei se jäädytä meitä luuppiin jatkossa
   const [initialDestination] = useState(globalIntent);
 
   return (
@@ -39,17 +38,17 @@ function App() {
           
           <Route element={<ProtectedRoute><AdminLayout /></ProtectedRoute>}>
             <Route path="/dashboard" element={<Dashboard />} />
+            
+            {/* 2. LISÄÄ TÄMÄ RIVI: Koti-sivun reititys */}
+            <Route path="/home" element={<Home />} />
+            
             <Route path="/media" element={<Media />} /> 
             <Route path="/jobs" element={<div className="p-8">Työt-moduuli tulossa...</div>} />
             <Route path="/fitness" element={<div className="p-8">Kuntoilu-moduuli tulossa...</div>} />
             <Route path="/settings" element={<div className="p-8">Asetukset tulossa...</div>} />
-            
-            {/* UUSI SIVU LISÄTÄÄN TÄHÄN: */}
             <Route path="/server" element={<Launchpad />} />
           </Route>
           
-          {/* Jos sieppari löysi koodin ladattaessa, pakotetaan käyttöliittymä 
-              suoraan aseta-salasana-näkymään! Jos ei, niin mennään kojelaudalle. */}
           <Route 
             path="/" 
             element={

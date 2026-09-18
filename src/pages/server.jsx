@@ -66,7 +66,7 @@ export default function Launchpad() {
     window.open(`${SERVER_URL}${urlPath}`, '_blank', 'noopener,noreferrer');
   };
 
-  // HÄTÄKATKAISIN: Seurannalla varustettu versio
+ // HÄTÄKATKAISIN: Seurannalla varustettu versio
   const handleKillSwitch = async () => {
     console.log("[Kill Switch] 1. Nappia painettu, aloitetaan...");
     setIsKilling(true);

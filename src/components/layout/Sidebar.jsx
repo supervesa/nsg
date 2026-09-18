@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { Users, Settings, LogOut, Image, Terminal } from 'lucide-react'; 
+import { Users, Settings, LogOut, Image, Terminal, Home } from 'lucide-react'; // Lisätty 'Home'
 import { supabase } from '../../config/supabaseClient';
 import { useSentinel } from '../../context/SentinelContext'; 
 import IconMapper from '../common/IconMapper'; 
@@ -18,12 +18,13 @@ function Sidebar({ isOpen, onClose }) {
     if (onClose) onClose();
   };
 
-  // Varmistettu oikeustarkistus Terminaalille
+  // Oikeustarkistukset
   const perms = typeof profile?.permissions === 'string' 
     ? JSON.parse(profile.permissions || '{}') 
     : (profile?.permissions || {});
     
   const hasTerminalAccess = hasRole('superadmin') || perms?.terminal === true;
+  const hasHomeAccess = hasRole('superadmin') || perms?.home === true; // UUSI: Kotinäkymän oikeus
   const hasAnyModules = systemModules.some(mod => hasModule(mod.key));
 
   return (
@@ -34,6 +35,21 @@ function Sidebar({ isOpen, onClose }) {
 
       <nav className="sidebar-nav">
         
+        {/* KOTI-OSIO (UUSI) */}
+        {hasHomeAccess && (
+          <>
+            <div className="text-label mb-2" style={{ paddingLeft: '12px' }}>Koti</div>
+            <NavLink 
+              to="/home" 
+              className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`} 
+              onClick={handleLinkClick}
+            >
+              <Home className="nav-icon" size={20} /> Kodin Yhteenveto
+            </NavLink>
+            <div style={{ marginBottom: '16px' }}></div>
+          </>
+        )}
+
         {/* HALLINTA-OSIO */}
         {(hasRole('admin') || hasTerminalAccess) && (
           <>
