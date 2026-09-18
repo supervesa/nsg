@@ -1,31 +1,62 @@
 import React from 'react';
 import { Activity, Thermometer, Zap, Coins } from 'lucide-react';
 
-export default function HeatpumpMath({ historyData }) {
+export default function HeatpumpMath({ historyData, nordpoolPrices = [] }) {
   if (!historyData || historyData.length === 0) {
     return <p className="text-muted">Ei tarpeeksi dataa laskentaan vielä tänään.</p>;
   }
 
-  // Uusin data on indeksissä 0, vanhin (tämän päivän ensimmäinen) on viimeinen.
+  // 1. Uusin ja vanhin data perustilastoja varten
   const current = historyData[0];
   const startOfDay = historyData[historyData.length - 1];
 
-  // 1. Delta T (Lämpötilaero tavoitteen ja todellisen välillä)
+  // Lämpötilaero (Delta T)
   const room = parseFloat(current.room_temp || 0);
   const target = parseFloat(current.target_temp || 0);
   const deltaT = (room - target).toFixed(1);
   const deltaColor = deltaT > 0 ? 'var(--color-rosso)' : (deltaT < 0 ? 'var(--color-electric)' : 'var(--color-saab)');
 
-  // 2. Päivän kulutus (Kumulatiivinen energia UUSIN - VANHIN)
+  // Päivän kokonaiskulutus
   const energyCurrent = parseFloat(current.energy_consumed || 0);
   const energyStart = parseFloat(startOfDay.energy_consumed || 0);
   const dailyConsumption = (energyCurrent - energyStart).toFixed(2);
 
-  // 3. Sähkön hinta-arvio (Oletuksena 15 c / kWh, voit vaihtaa tämän myöhemmin dynaamiseksi)
-  const pricePerKwh = 0.15; 
-  const dailyCost = (dailyConsumption * pricePerKwh).toFixed(2);
+  // 2. TARKKA TUNTIKOHTAINEN KUSTANNUSLASKENTA
+  let totalCostEur = 0;
+  
+  // Käännetään historia vanhimmasta uusimpaan tarkan lisäyksen laskemiseksi
+  const chronologicalHistory = [...historyData].reverse();
 
-  // 4. Käyntiaika (Uptime) % tältä päivältä
+  for (let i = 1; i < chronologicalHistory.length; i++) {
+    const prev = chronologicalHistory[i - 1];
+    const curr = chronologicalHistory[i];
+
+    const prevEnergy = parseFloat(prev.energy_consumed || 0);
+    const currEnergy = parseFloat(curr.energy_consumed || 0);
+    const energyDiff = currEnergy - prevEnergy;
+    
+    // Jos energiaa on kulunut tällä mittausvälillä
+    if (energyDiff > 0) {
+      const recordTime = new Date(prev.recorded_at).getTime();
+      
+      // Etsitään tätä ajanhetkeä vastaava hinta Nordpool-datasta
+      const priceRecord = nordpoolPrices.find(p => {
+        const start = new Date(p.start_time).getTime();
+        const end = new Date(p.end_time).getTime();
+        return recordTime >= start && recordTime < end;
+      });
+
+      // Hinta on senttejä (esim. 6.50), jaetaan 100 jotta saadaan kerroin euroina (0.065 €/kWh)
+      const priceCents = priceRecord ? parseFloat(priceRecord.price) : 0;
+      const priceEur = priceCents / 100;
+      
+      totalCostEur += (energyDiff * priceEur);
+    }
+  }
+
+  const dailyCostFormatted = totalCostEur.toFixed(2);
+
+  // 3. Käyntiaika (Uptime) % tältä päivältä
   const activeRecords = historyData.filter(row => row.state !== 'off').length;
   const uptimePercent = ((activeRecords / historyData.length) * 100).toFixed(0);
 
@@ -50,8 +81,8 @@ export default function HeatpumpMath({ historyData }) {
         value={dailyConsumption > 0 ? dailyConsumption : '0.00'} unit="kWh" 
       />
       <StatItem 
-        icon={Coins} label="KUSTANNUSARVIO (15 c/kWh)" 
-        value={dailyCost > 0 ? dailyCost : '0.00'} unit="€" 
+        icon={Coins} label="KUSTANNUSARVIO (PÖRSSISÄHKÖ)" 
+        value={dailyCostFormatted > 0 ? dailyCostFormatted : '0.00'} unit="€" 
       />
       <StatItem 
         icon={Thermometer} label="LÄMPÖTILAERO (DELTA T)" 

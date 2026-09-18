@@ -4,16 +4,16 @@ import { useSentinel } from '../../context/SentinelContext';
 import StatsCard from '../../components/common/StatsCard';
 import Accordion from '../../components/common/Accordion';
 import Button from '../../components/common/Button';
-import { ShieldAlert, RefreshCw, Calculator } from 'lucide-react';
-import HeatpumpMath from './heat_pump/math'; // Uusi komponentti
+import { ShieldAlert, RefreshCw } from 'lucide-react';
 
-// Suomennokset Pumpun Tilaan
+import HeatpumpMath from './heat_pump/math'; 
+import NordpoolEnergy from './nordpool/energy'; // UUSI TUONTI
+
 const getHeatpumpStateName = (state) => {
   const states = { 'heat_cool': 'Auto', 'heat': 'Lämmitys', 'cool': 'Viilennys', 'dry': 'Kuivaus', 'fan_only': 'Puhallus', 'off': 'Pois' };
   return states[state] || state || '-';
 };
 
-// Suomennokset Puhaltimelle
 const getFanModeName = (mode) => {
   const modes = { 'auto': 'Automaattinen', 'quiet': 'Hiljainen', 'low': 'Pieni', 'medium': 'Keskiteho', 'high': 'Maksimi' };
   return modes[mode] || mode || '-';
@@ -24,9 +24,8 @@ export default function Home() {
   
   const [solarData, setSolarData] = useState([]);
   const [heatingData, setHeatingData] = useState(null);
-  
-  // UUSI: Talletetaan koko tämän päivän pumppuhistoria
   const [heatpumpHistory, setHeatpumpHistory] = useState([]);
+  const [nordpoolPrices, setNordpoolPrices] = useState([]); 
   
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -41,7 +40,10 @@ export default function Home() {
     setError(null);
 
     try {
-      // 1. Lämmitysdata (macbase)
+      const today = new Date();
+      today.setHours(0, 0, 0, 0); 
+      const todayIso = today.toISOString();
+
       const { data: heating, error: heatingError } = await macbase
         .schema('homeassistant') 
         .from('heating_history')
@@ -52,7 +54,6 @@ export default function Home() {
 
       if (heatingError) throw heatingError;
 
-      // 2. Aurinkodata (macbase)
       const { data: solar, error: solarError } = await macbase
         .schema('homeassistant') 
         .from('solar_history')
@@ -62,25 +63,30 @@ export default function Home() {
 
       if (solarError) throw solarError;
 
-      // 3. Ilmalämpöpumpun data (Kaikki TÄMÄN PÄIVÄN rivit matematiikkaa varten)
-      const today = new Date();
-      today.setHours(0, 0, 0, 0); // Klo 00:00 alkaen
-      
       const { data: heatpump, error: hpError } = await macbase
         .schema('homeassistant')
         .from('heatpump_history')
         .select('*')
-        .gte('recorded_at', today.toISOString()) // Haemme päivän koko saldon kerralla!
+        .gte('recorded_at', todayIso) 
         .order('recorded_at', { ascending: false });
         
       if (hpError) throw hpError;
 
+      const { data: nordpool, error: npError } = await macbase
+        .schema('homeassistant')
+        .from('nordpool_prices')
+        .select('*')
+        .gte('start_time', todayIso);
+
+      if (npError) throw npError;
+
       setHeatingData(heating || null);
       setSolarData(solar || []);
       setHeatpumpHistory(heatpump || []);
+      setNordpoolPrices(nordpool || []);
 
     } catch (err) {
-      console.error("Virhe haettaessa kotidataa:", JSON.stringify(err, null, 2));
+      console.error("Virhe haettaessa kotidataa:", err);
       setError("Tietojen haku epäonnistui. Tarkista tietokantayhteys.");
     } finally {
       setIsLoading(false);
@@ -102,19 +108,15 @@ export default function Home() {
     );
   }
 
-  // Puretaan datat korteille
   const pvPower = solarData?.find(s => s?.sensor_id?.includes('pv_power'))?.value || '0';
   const dailyYield = solarData?.find(s => s?.sensor_id?.includes('daily_yield'))?.value || '0';
   const isGenerating = parseFloat(pvPower) > 0;
   
-  // Viimeisin pumpputilanne (indeksi 0)
   const currentHeatpump = heatpumpHistory.length > 0 ? heatpumpHistory[0] : null;
   const hpIsRunning = currentHeatpump?.state && currentHeatpump.state !== 'off';
 
  return (
     <div className="layout-dashboard">
-      
-      {/* Yläpalkki */}
       <div className="flex-between mb-8" style={{ flexWrap: 'wrap', gap: '16px' }}>
         <div>
           <h2 className="text-title" style={{ marginBottom: '8px' }}>Kodin Yhteenveto</h2>
@@ -135,7 +137,6 @@ export default function Home() {
         </div>
       )}
 
-      {/* Mittaristo Grid */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '24px', marginBottom: '24px' }}>
         
         <StatsCard 
@@ -153,7 +154,6 @@ export default function Home() {
           iconName="BatteryCharging" 
         />
 
-        {/* UUSI: Termostaattityylinen Ilmalämpöpumppu */}
         <StatsCard 
           title="Ilmalämpöpumppu"
           value={currentHeatpump?.target_temp} 
@@ -165,7 +165,6 @@ export default function Home() {
           isActive={hpIsRunning}
         />
 
-        {/* PALAUTETTU: Patteriverkoston data */}
         <StatsCard 
           title="Patteriverkosto"
           value={heatingData?.indoor_temp} unit="°C"
@@ -177,11 +176,22 @@ export default function Home() {
 
       </div>
 
-      {/* UUSI HAITARI: Älykäs Matematiikka */}
+      {/* UUSI: Pörssisähkö-haitari lisätty ensin */}
+      {nordpoolPrices.length > 0 && (
+        <div className="mb-4">
+          <Accordion title="Pörssisähkö (Nordpool)" iconName="Zap" defaultOpen={true}>
+            <NordpoolEnergy nordpoolPrices={nordpoolPrices} />
+          </Accordion>
+        </div>
+      )}
+
+      {/* Pumppuanalyysi laitettu defaultOpen={false} pitämään näkymä siistinä, muuta trueksi jos haluat molemmat auki */}
       {heatpumpHistory.length > 0 && (
-        <Accordion title="Analyysi ja Kulutuslaskenta (Ilmalämpöpumppu)" iconName="Calculator" defaultOpen={true}>
-          <HeatpumpMath historyData={heatpumpHistory} />
-        </Accordion>
+        <div className="mb-4">
+          <Accordion title="Analyysi ja Kulutuslaskenta (Ilmalämpöpumppu)" iconName="Calculator" defaultOpen={false}>
+            <HeatpumpMath historyData={heatpumpHistory} nordpoolPrices={nordpoolPrices} />
+          </Accordion>
+        </div>
       )}
 
     </div>
