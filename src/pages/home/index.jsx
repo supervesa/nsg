@@ -7,7 +7,7 @@ import Button from '../../components/common/Button';
 import { ShieldAlert, RefreshCw } from 'lucide-react';
 
 import HeatpumpMath from './heat_pump/math'; 
-import NordpoolEnergy from './nordpool/energy'; // UUSI TUONTI
+import NordpoolEnergy from './nordpool/energy'; 
 
 const getHeatpumpStateName = (state) => {
   const states = { 'heat_cool': 'Auto', 'heat': 'Lämmitys', 'cool': 'Viilennys', 'dry': 'Kuivaus', 'fan_only': 'Puhallus', 'off': 'Pois' };
@@ -110,7 +110,30 @@ export default function Home() {
 
   const pvPower = solarData?.find(s => s?.sensor_id?.includes('pv_power'))?.value || '0';
   const dailyYield = solarData?.find(s => s?.sensor_id?.includes('daily_yield'))?.value || '0';
+  const gridPower = solarData?.find(s => s?.sensor_id?.includes('grid_power'))?.value || '0';
+  
   const isGenerating = parseFloat(pvPower) > 0;
+  const gridPowerNum = parseFloat(gridPower);
+  const pvPowerNum = parseFloat(pvPower);
+
+  // Talon sähkötilan päätteleminen
+  let houseStatusTitle = 'Verkkosähkö';
+  let houseStatusDesc = 'Ottaa sähköä ulkopuolelta';
+  let houseIsActive = false;
+
+  if (gridPowerNum > 0) {
+    houseStatusTitle = 'Myy sähköä';
+    houseStatusDesc = `Syöttää verkkoon ${gridPower} W`;
+    houseIsActive = true;
+  } else if (pvPowerNum > 0) {
+    houseStatusTitle = 'Itseriittoinen';
+    houseStatusDesc = 'Käyttää tuotettua aurinkosähköä';
+    houseIsActive = true;
+  } else {
+    houseStatusTitle = 'Verkkosähkö';
+    houseStatusDesc = 'Ottaa sähköä ulkopuolelta';
+    houseIsActive = false;
+  }
   
   const currentHeatpump = heatpumpHistory.length > 0 ? heatpumpHistory[0] : null;
   const hpIsRunning = currentHeatpump?.state && currentHeatpump.state !== 'off';
@@ -154,6 +177,16 @@ export default function Home() {
           iconName="BatteryCharging" 
         />
 
+        {/* UUSI: Talon energiatila (Itseriittoinen / Verkkosähkö / Myy sähköä) */}
+        <StatsCard 
+          title="Talon Sähkötila" 
+          value={houseStatusTitle} 
+          unit="" 
+          description={houseStatusDesc} 
+          iconName="Zap" 
+          isActive={houseIsActive} 
+        />
+
         <StatsCard 
           title="Ilmalämpöpumppu"
           value={currentHeatpump?.target_temp} 
@@ -176,7 +209,7 @@ export default function Home() {
 
       </div>
 
-      {/* UUSI: Pörssisähkö-haitari lisätty ensin */}
+      {/* Pörssisähkö-haitari */}
       {nordpoolPrices.length > 0 && (
         <div className="mb-4">
           <Accordion title="Pörssisähkö (Nordpool)" iconName="Zap" defaultOpen={true}>
@@ -185,7 +218,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* Pumppuanalyysi laitettu defaultOpen={false} pitämään näkymä siistinä, muuta trueksi jos haluat molemmat auki */}
+      {/* Pumppuanalyysi */}
       {heatpumpHistory.length > 0 && (
         <div className="mb-4">
           <Accordion title="Analyysi ja Kulutuslaskenta (Ilmalämpöpumppu)" iconName="Calculator" defaultOpen={false}>
