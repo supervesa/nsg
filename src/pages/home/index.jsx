@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { supabase } from '../../config/supabaseClient';
+// HUOM! Tuodaan uusi macbase-yhteys:
+import { macbase } from '../../config/supabaseClient'; 
 import { useSentinel } from '../../context/SentinelContext';
 import StatsCard from '../../components/common/StatsCard';
 import Button from '../../components/common/Button';
@@ -13,7 +14,7 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Tarkistetaan käyttöoikeudet (superadmin tai erillinen home-oikeus)
+  // Tarkistetaan käyttöoikeudet
   const perms = typeof profile?.permissions === 'string' 
     ? JSON.parse(profile?.permissions || '{}') 
     : (profile?.permissions || {});
@@ -25,8 +26,8 @@ export default function Home() {
     setError(null);
 
     try {
-      // 1. Haetaan lämmitysdata puhtaasti homeassistant-skeemasta
-      const { data: heating, error: heatingError } = await supabase
+      // 1. Haetaan lämmitysdata MAC MINILTÄ (macbase), homeassistant-skeemasta
+      const { data: heating, error: heatingError } = await macbase
         .schema('homeassistant') 
         .from('heating_history')
         .select('*')
@@ -36,8 +37,8 @@ export default function Home() {
 
       if (heatingError) throw heatingError;
 
-      // 2. Haetaan aurinkodata puhtaasti homeassistant-skeemasta
-      const { data: solar, error: solarError } = await supabase
+      // 2. Haetaan aurinkodata MAC MINILTÄ
+      const { data: solar, error: solarError } = await macbase
         .schema('homeassistant') 
         .from('solar_history')
         .select('*')
@@ -51,7 +52,7 @@ export default function Home() {
 
     } catch (err) {
       console.error("Virhe haettaessa kotidataa:", JSON.stringify(err, null, 2));
-      setError("Tietojen haku epäonnistui. Tarkista konsoli (F12).");
+      setError("Tietojen haku epäonnistui. Tarkista tietokantayhteys.");
     } finally {
       setIsLoading(false);
     }
@@ -63,7 +64,6 @@ export default function Home() {
     }
   }, [hasAccess]);
 
-  // Pääsyn eväys
   if (!hasAccess) {
     return (
       <div style={{ padding: '32px' }}>
@@ -75,8 +75,7 @@ export default function Home() {
     );
   }
 
-  // Etsitään halutut sensorit aurinkodatasta. 
-  // Turvatarkistukset mukana, jos joku arvo uupuisi.
+  // Etsitään halutut sensorit aurinkodatasta
   const pvPower = solarData?.find(s => s?.sensor_id?.includes('pv_power'))?.value || '0';
   const dailyYield = solarData?.find(s => s?.sensor_id?.includes('daily_yield'))?.value || '0';
   
