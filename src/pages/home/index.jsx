@@ -1,23 +1,38 @@
 import React, { useState, useEffect } from 'react';
-// HUOM! Tuodaan uusi macbase-yhteys:
 import { macbase } from '../../config/supabaseClient'; 
 import { useSentinel } from '../../context/SentinelContext';
 import StatsCard from '../../components/common/StatsCard';
+import Accordion from '../../components/common/Accordion';
 import Button from '../../components/common/Button';
-import { ShieldAlert, RefreshCw } from 'lucide-react';
+import { ShieldAlert, RefreshCw, Calculator } from 'lucide-react';
+import HeatpumpMath from './heat_pump/math'; // Uusi komponentti
+
+// Suomennokset Pumpun Tilaan
+const getHeatpumpStateName = (state) => {
+  const states = { 'heat_cool': 'Auto', 'heat': 'Lämmitys', 'cool': 'Viilennys', 'dry': 'Kuivaus', 'fan_only': 'Puhallus', 'off': 'Pois' };
+  return states[state] || state || '-';
+};
+
+// Suomennokset Puhaltimelle
+const getFanModeName = (mode) => {
+  const modes = { 'auto': 'Automaattinen', 'quiet': 'Hiljainen', 'low': 'Pieni', 'medium': 'Keskiteho', 'high': 'Maksimi' };
+  return modes[mode] || mode || '-';
+};
 
 export default function Home() {
   const { profile, hasRole } = useSentinel();
   
   const [solarData, setSolarData] = useState([]);
   const [heatingData, setHeatingData] = useState(null);
+  
+  // UUSI: Talletetaan koko tämän päivän pumppuhistoria
+  const [heatpumpHistory, setHeatpumpHistory] = useState([]);
+  
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Tarkistetaan käyttöoikeudet
   const perms = typeof profile?.permissions === 'string' 
-    ? JSON.parse(profile?.permissions || '{}') 
-    : (profile?.permissions || {});
+    ? JSON.parse(profile?.permissions || '{}') : (profile?.permissions || {});
   
   const hasAccess = hasRole('superadmin') || perms?.home === true;
 
@@ -26,7 +41,7 @@ export default function Home() {
     setError(null);
 
     try {
-      // 1. Haetaan lämmitysdata MAC MINILTÄ (macbase), homeassistant-skeemasta
+      // 1. Lämmitysdata (macbase)
       const { data: heating, error: heatingError } = await macbase
         .schema('homeassistant') 
         .from('heating_history')
@@ -37,7 +52,7 @@ export default function Home() {
 
       if (heatingError) throw heatingError;
 
-      // 2. Haetaan aurinkodata MAC MINILTÄ
+      // 2. Aurinkodata (macbase)
       const { data: solar, error: solarError } = await macbase
         .schema('homeassistant') 
         .from('solar_history')
@@ -47,8 +62,22 @@ export default function Home() {
 
       if (solarError) throw solarError;
 
+      // 3. Ilmalämpöpumpun data (Kaikki TÄMÄN PÄIVÄN rivit matematiikkaa varten)
+      const today = new Date();
+      today.setHours(0, 0, 0, 0); // Klo 00:00 alkaen
+      
+      const { data: heatpump, error: hpError } = await macbase
+        .schema('homeassistant')
+        .from('heatpump_history')
+        .select('*')
+        .gte('recorded_at', today.toISOString()) // Haemme päivän koko saldon kerralla!
+        .order('recorded_at', { ascending: false });
+        
+      if (hpError) throw hpError;
+
       setHeatingData(heating || null);
       setSolarData(solar || []);
+      setHeatpumpHistory(heatpump || []);
 
     } catch (err) {
       console.error("Virhe haettaessa kotidataa:", JSON.stringify(err, null, 2));
@@ -59,9 +88,7 @@ export default function Home() {
   };
 
   useEffect(() => {
-    if (hasAccess) {
-      fetchData();
-    }
+    if (hasAccess) fetchData();
   }, [hasAccess]);
 
   if (!hasAccess) {
@@ -75,13 +102,16 @@ export default function Home() {
     );
   }
 
-  // Etsitään halutut sensorit aurinkodatasta
+  // Puretaan datat korteille
   const pvPower = solarData?.find(s => s?.sensor_id?.includes('pv_power'))?.value || '0';
   const dailyYield = solarData?.find(s => s?.sensor_id?.includes('daily_yield'))?.value || '0';
-  
   const isGenerating = parseFloat(pvPower) > 0;
+  
+  // Viimeisin pumpputilanne (indeksi 0)
+  const currentHeatpump = heatpumpHistory.length > 0 ? heatpumpHistory[0] : null;
+  const hpIsRunning = currentHeatpump?.state && currentHeatpump.state !== 'off';
 
-  return (
+ return (
     <div className="layout-dashboard">
       
       {/* Yläpalkki */}
@@ -93,12 +123,7 @@ export default function Home() {
           </p>
         </div>
         
-        <Button 
-          variant="secondary" 
-          icon={RefreshCw} 
-          onClick={fetchData} 
-          isLoading={isLoading}
-        >
+        <Button variant="secondary" icon={RefreshCw} onClick={fetchData} isLoading={isLoading}>
           Päivitä tiedot
         </Button>
       </div>
@@ -110,51 +135,55 @@ export default function Home() {
         </div>
       )}
 
-      {/* Mittaristo (Grid) */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '24px' }}>
+      {/* Mittaristo Grid */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '24px', marginBottom: '24px' }}>
         
-        {/* Aurinkovoima: Teho */}
         <StatsCard 
-          title="Aurinkovoima"
-          value={pvPower}
-          unit="W"
-          description="Paneelien tuottama hetkellinen teho"
-          iconName="Sun"
-          isActive={isGenerating}
+          title="Aurinkovoima" 
+          value={pvPower} unit="W" 
+          description="Paneelien tuottama hetkellinen teho" 
+          iconName="Sun" 
+          isActive={isGenerating} 
+        />
+        
+        <StatsCard 
+          title="Päivän Tuotto" 
+          value={dailyYield} unit="Wh" 
+          description="Tämän päivän kokonaistuotto" 
+          iconName="BatteryCharging" 
         />
 
-        {/* Aurinkovoima: Päivän tuotto */}
+        {/* UUSI: Termostaattityylinen Ilmalämpöpumppu */}
         <StatsCard 
-          title="Päivän Tuotto"
-          value={dailyYield}
-          unit="Wh"
-          description="Tämän päivän kokonaistuotto tähän mennessä"
-          iconName="BatteryCharging"
-        />
-
-        {/* Sisäilma */}
-        <StatsCard 
-          title="Sisäilma"
-          value={heatingData?.indoor_temp}
+          title="Ilmalämpöpumppu"
+          value={currentHeatpump?.target_temp} 
           unit="°C"
-          description="Olohuoneen mitattu lämpötila"
-          subLabel="TAVOITELÄMPÖTILA"
-          subValue={heatingData?.target_temp ? `${heatingData.target_temp} °C` : '-'}
+          description={`Tila: ${getHeatpumpStateName(currentHeatpump?.state)} • Sisälämpö: ${currentHeatpump?.room_temp || '-'} °C`}
+          subLabel="PUHALLIN"
+          subValue={getFanModeName(currentHeatpump?.fan_mode)}
+          iconName="Wind"
+          isActive={hpIsRunning}
+        />
+
+        {/* PALAUTETTU: Patteriverkoston data */}
+        <StatsCard 
+          title="Patteriverkosto"
+          value={heatingData?.indoor_temp} unit="°C"
+          description="Olohuoneen anturin mitattu lämpötila"
+          subLabel="ULKOLÄMPÖTILA"
+          subValue={heatingData?.outdoor_temp ? `${heatingData.outdoor_temp} °C` : '-'}
           iconName="Home"
         />
 
-        {/* Sää ja Ulkoilma */}
-        <StatsCard 
-          title="Ulkoilma"
-          value={heatingData?.outdoor_temp}
-          unit="°C"
-          description="Ulkolämpötila tällä hetkellä"
-          subLabel="3H ENNUSTE"
-          subValue={heatingData?.forecast_3h ? `${heatingData.forecast_3h} °C` : '-'}
-          iconName="Cloud"
-        />
-
       </div>
+
+      {/* UUSI HAITARI: Älykäs Matematiikka */}
+      {heatpumpHistory.length > 0 && (
+        <Accordion title="Analyysi ja Kulutuslaskenta (Ilmalämpöpumppu)" iconName="Calculator" defaultOpen={true}>
+          <HeatpumpMath historyData={heatpumpHistory} />
+        </Accordion>
+      )}
+
     </div>
   );
 }

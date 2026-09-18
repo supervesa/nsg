@@ -9,7 +9,7 @@ export default function StatsCard({
   subLabel, 
   subValue,
   iconName,
-  isActive // Voidaan käyttää sytyttämään vihreä "status-dot", esim. kun paneelit tuottavat sähköä
+  isActive
 }) {
   const Icon = LucideIcons[iconName] || LucideIcons.Activity;
 
@@ -17,14 +17,16 @@ export default function StatsCard({
     display: 'flex',
     flexDirection: 'column',
     height: '100%',
-    padding: '24px'
+    boxSizing: 'border-box', // <-- TÄMÄ RIVI KORJAA PÄÄLLEKKÄISYYDEN!
+    padding: '24px',
+    gap: '16px'
   };
 
   return (
     <div className="ui-panel smooth-transition" style={cardStyle}>
       
       {/* Yläosa: Ikoni, Otsikko ja mahdollinen tila-LED */}
-      <div className="flex-between mb-4">
+      <div className="flex-between">
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <div style={{ 
             backgroundColor: 'var(--color-bg-clean)', 
@@ -35,7 +37,7 @@ export default function StatsCard({
           }}>
             <Icon size={24} />
           </div>
-          <h3 className="text-title">{title}</h3>
+          <h3 className="text-title" style={{ margin: 0 }}>{title}</h3>
         </div>
         
         {isActive !== undefined && (
@@ -46,7 +48,7 @@ export default function StatsCard({
       </div>
       
       {/* Keskiosa: Pääarvo ja Yksikkö */}
-      <div style={{ margin: '16px 0', display: 'flex', alignItems: 'baseline', gap: '4px' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
         <span style={{ fontSize: '2.5rem', fontWeight: '700', color: 'var(--color-text-main)', lineHeight: '1' }}>
           {value !== null && value !== undefined ? value : '-'}
         </span>
@@ -55,9 +57,9 @@ export default function StatsCard({
         </span>
       </div>
 
-      {/* Alaosa: Kuvaus ja Lisätieto */}
+      {/* Alaosa: Kuvaus ja Lisätieto (pysyy nätisti alhaalla) */}
       <div style={{ marginTop: 'auto' }}>
-        <p className="text-muted" style={{ marginBottom: subLabel ? '12px' : '0' }}>
+        <p className="text-muted" style={{ marginBottom: subLabel ? '16px' : '0', marginTop: 0 }}>
           {description}
         </p>
         
@@ -65,7 +67,7 @@ export default function StatsCard({
           <div style={{ 
             display: 'flex', 
             justifyContent: 'space-between', 
-            paddingTop: '12px', 
+            paddingTop: '16px', 
             borderTop: '1px solid var(--color-bg-clean)' 
           }}>
             <span className="text-label">{subLabel}</span>
