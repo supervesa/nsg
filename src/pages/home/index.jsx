@@ -1,32 +1,22 @@
 import React, { useState, useEffect } from 'react';
 import { macbase } from '../../config/supabaseClient'; 
 import { useSentinel } from '../../context/SentinelContext';
-import StatsCard from '../../components/common/StatsCard';
-import Accordion from '../../components/common/Accordion';
-import Button from '../../components/common/Button';
 import { ShieldAlert, RefreshCw } from 'lucide-react';
-
-import HeatpumpMath from './heat_pump/math'; 
-import NordpoolEnergy from './nordpool/energy'; 
-
-const getHeatpumpStateName = (state) => {
-  const states = { 'heat_cool': 'Auto', 'heat': 'Lämmitys', 'cool': 'Viilennys', 'dry': 'Kuivaus', 'fan_only': 'Puhallus', 'off': 'Pois' };
-  return states[state] || state || '-';
-};
-
-const getFanModeName = (mode) => {
-  const modes = { 'auto': 'Automaattinen', 'quiet': 'Hiljainen', 'low': 'Pieni', 'medium': 'Keskiteho', 'high': 'Maksimi' };
-  return modes[mode] || mode || '-';
-};
+import Button from '../../components/common/Button';
+import DashboardLayout from './components/DashboardLayout';
 
 export default function Home() {
   const { profile, hasRole } = useSentinel();
   
+  // 1. Tilan hallinta eri datatyypeille
   const [solarData, setSolarData] = useState([]);
   const [heatingData, setHeatingData] = useState(null);
   const [heatpumpHistory, setHeatpumpHistory] = useState([]);
   const [nordpoolPrices, setNordpoolPrices] = useState([]); 
-  
+  const [historyAnalytics, setHistoryAnalytics] = useState([]);
+  const [weatherForecast, setWeatherForecast] = useState([]);
+
+  // UI-tila
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -35,6 +25,7 @@ export default function Home() {
   
   const hasAccess = hasRole('superadmin') || perms?.home === true;
 
+  // 2. Älykäs Datanhaku
   const fetchData = async () => {
     setIsLoading(true);
     setError(null);
@@ -44,46 +35,38 @@ export default function Home() {
       today.setHours(0, 0, 0, 0); 
       const todayIso = today.toISOString();
 
-      const { data: heating, error: heatingError } = await macbase
-        .schema('homeassistant') 
-        .from('heating_history')
-        .select('*')
-        .order('recorded_at', { ascending: false })
-        .limit(1)
-        .maybeSingle(); 
+      // Suoritetaan kyselyt rinnakkain nopeuden maksimoimiseksi
+      const [
+        heatingRes,
+        solarRes,
+        heatpumpRes,
+        nordpoolRes,
+        analyticsRes,
+        weatherRes
+      ] = await Promise.all([
+        macbase.schema('homeassistant').from('heating_history').select('*').order('recorded_at', { ascending: false }).limit(1).maybeSingle(),
+        macbase.schema('homeassistant').from('solar_history').select('*').order('recorded_at', { ascending: false }).limit(4),
+        macbase.schema('homeassistant').from('heatpump_history').select('*').gte('recorded_at', todayIso).order('recorded_at', { ascending: false }),
+        macbase.schema('homeassistant').from('nordpool_prices').select('*').gte('start_time', todayIso),
+        macbase.schema('homeassistant').from('history_analytics').select('*').order('hour_id', { ascending: false }).limit(24),
+        macbase.schema('homeassistant').from('weather_forecast').select('*').gte('target_time', todayIso).order('target_time', { ascending: true })
+      ]);
 
-      if (heatingError) throw heatingError;
+      // Virheiden tarkistus
+      if (heatingRes.error) throw heatingRes.error;
+      if (solarRes.error) throw solarRes.error;
+      if (heatpumpRes.error) throw heatpumpRes.error;
+      if (nordpoolRes.error) throw nordpoolRes.error;
+      if (analyticsRes.error && analyticsRes.error.code !== '42P01') throw analyticsRes.error; 
+      if (weatherRes.error && weatherRes.error.code !== '42P01') throw weatherRes.error;     
 
-      const { data: solar, error: solarError } = await macbase
-        .schema('homeassistant') 
-        .from('solar_history')
-        .select('*')
-        .order('recorded_at', { ascending: false })
-        .limit(4);
-
-      if (solarError) throw solarError;
-
-      const { data: heatpump, error: hpError } = await macbase
-        .schema('homeassistant')
-        .from('heatpump_history')
-        .select('*')
-        .gte('recorded_at', todayIso) 
-        .order('recorded_at', { ascending: false });
-        
-      if (hpError) throw hpError;
-
-      const { data: nordpool, error: npError } = await macbase
-        .schema('homeassistant')
-        .from('nordpool_prices')
-        .select('*')
-        .gte('start_time', todayIso);
-
-      if (npError) throw npError;
-
-      setHeatingData(heating || null);
-      setSolarData(solar || []);
-      setHeatpumpHistory(heatpump || []);
-      setNordpoolPrices(nordpool || []);
+      // Tilojen päivitys
+      setHeatingData(heatingRes.data || null);
+      setSolarData(solarRes.data || []);
+      setHeatpumpHistory(heatpumpRes.data || []);
+      setNordpoolPrices(nordpoolRes.data || []);
+      setHistoryAnalytics(analyticsRes.data || []);
+      setWeatherForecast(weatherRes.data || []);
 
     } catch (err) {
       console.error("Virhe haettaessa kotidataa:", err);
@@ -108,43 +91,24 @@ export default function Home() {
     );
   }
 
-  const pvPower = solarData?.find(s => s?.sensor_id?.includes('pv_power'))?.value || '0';
-  const dailyYield = solarData?.find(s => s?.sensor_id?.includes('daily_yield'))?.value || '0';
-  const gridPower = solarData?.find(s => s?.sensor_id?.includes('grid_power'))?.value || '0';
-  
-  const isGenerating = parseFloat(pvPower) > 0;
-  const gridPowerNum = parseFloat(gridPower);
-  const pvPowerNum = parseFloat(pvPower);
+  // 3. Pakataan kaikki data yhteen olioon, jotta sen välittäminen eteenpäin on siistiä
+  const homeData = {
+    solarData,
+    heatingData,
+    heatpumpHistory,
+    nordpoolPrices,
+    historyAnalytics,
+    weatherForecast,
+    isLoading
+  };
 
-  // Talon sähkötilan päätteleminen
-  let houseStatusTitle = 'Verkkosähkö';
-  let houseStatusDesc = 'Ottaa sähköä ulkopuolelta';
-  let houseIsActive = false;
-
-  if (gridPowerNum > 0) {
-    houseStatusTitle = 'Myy sähköä';
-    houseStatusDesc = `Syöttää verkkoon ${gridPower} W`;
-    houseIsActive = true;
-  } else if (pvPowerNum > 0) {
-    houseStatusTitle = 'Itseriittoinen';
-    houseStatusDesc = 'Käyttää tuotettua aurinkosähköä';
-    houseIsActive = true;
-  } else {
-    houseStatusTitle = 'Verkkosähkö';
-    houseStatusDesc = 'Ottaa sähköä ulkopuolelta';
-    houseIsActive = false;
-  }
-  
-  const currentHeatpump = heatpumpHistory.length > 0 ? heatpumpHistory[0] : null;
-  const hpIsRunning = currentHeatpump?.state && currentHeatpump.state !== 'off';
-
- return (
+  return (
     <div className="layout-dashboard">
       <div className="flex-between mb-8" style={{ flexWrap: 'wrap', gap: '16px' }}>
         <div>
           <h2 className="text-title" style={{ marginBottom: '8px' }}>Kodin Yhteenveto</h2>
           <p className="text-muted" style={{ margin: 0 }}>
-            Reaaliaikainen data aurinkopaneeleista ja lämmitysjärjestelmästä.
+            Reaaliaikainen analytiikka, automaatio ja sääolosuhteet.
           </p>
         </div>
         
@@ -160,72 +124,8 @@ export default function Home() {
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '24px', marginBottom: '24px' }}>
-        
-        <StatsCard 
-          title="Aurinkovoima" 
-          value={pvPower} unit="W" 
-          description="Paneelien tuottama hetkellinen teho" 
-          iconName="Sun" 
-          isActive={isGenerating} 
-        />
-        
-        <StatsCard 
-          title="Päivän Tuotto" 
-          value={dailyYield} unit="Wh" 
-          description="Tämän päivän kokonaistuotto" 
-          iconName="BatteryCharging" 
-        />
-
-        {/* UUSI: Talon energiatila (Itseriittoinen / Verkkosähkö / Myy sähköä) */}
-        <StatsCard 
-          title="Talon Sähkötila" 
-          value={houseStatusTitle} 
-          unit="" 
-          description={houseStatusDesc} 
-          iconName="Zap" 
-          isActive={houseIsActive} 
-        />
-
-        <StatsCard 
-          title="Ilmalämpöpumppu"
-          value={currentHeatpump?.target_temp} 
-          unit="°C"
-          description={`Tila: ${getHeatpumpStateName(currentHeatpump?.state)} • Sisälämpö: ${currentHeatpump?.room_temp || '-'} °C`}
-          subLabel="PUHALLIN"
-          subValue={getFanModeName(currentHeatpump?.fan_mode)}
-          iconName="Wind"
-          isActive={hpIsRunning}
-        />
-
-        <StatsCard 
-          title="Patteriverkosto"
-          value={heatingData?.indoor_temp} unit="°C"
-          description="Olohuoneen anturin mitattu lämpötila"
-          subLabel="ULKOLÄMPÖTILA"
-          subValue={heatingData?.outdoor_temp ? `${heatingData.outdoor_temp} °C` : '-'}
-          iconName="Home"
-        />
-
-      </div>
-
-      {/* Pörssisähkö-haitari */}
-      {nordpoolPrices.length > 0 && (
-        <div className="mb-4">
-          <Accordion title="Pörssisähkö (Nordpool)" iconName="Zap" defaultOpen={true}>
-            <NordpoolEnergy nordpoolPrices={nordpoolPrices} />
-          </Accordion>
-        </div>
-      )}
-
-      {/* Pumppuanalyysi */}
-      {heatpumpHistory.length > 0 && (
-        <div className="mb-4">
-          <Accordion title="Analyysi ja Kulutuslaskenta (Ilmalämpöpumppu)" iconName="Calculator" defaultOpen={false}>
-            <HeatpumpMath historyData={heatpumpHistory} nordpoolPrices={nordpoolPrices} />
-          </Accordion>
-        </div>
-      )}
+      {/* Moottori kytketty: Layout piirtää widgetit ja tabit automaattisesti */}
+      <DashboardLayout data={homeData} />
 
     </div>
   );
