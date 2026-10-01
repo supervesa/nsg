@@ -113,16 +113,34 @@ export default function SchedulingTab() {
     return 'var(--color-electric)';              // Normaali
   };
 
+  const formatNumber = (num) => {
+    if (num === null || num === undefined) return '-';
+    return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+  };
+
+  const cleanCategoryName = (name) => {
+    if (!name) return 'Tuntematon';
+    return name.split(' (')[0];
+  };
+
   if (isLoadingProfiles) {
     return <div className="text-muted" style={{ padding: '24px' }}>Ladataan analytiikkaa...</div>;
   }
 
   // --- MATRIISIN DATAN KÄSITTELY ---
-  const weatherCategories = [...new Set(climateProfiles.map(p => p.weather?.category_name))].filter(Boolean);
+  // Järjestetään sääsarakkeet kylmimmästä lämpimimpään (temp_max mukaan)
+  const sortedClimateProfiles = [...climateProfiles].sort((a, b) => (a.weather?.temp_max || 0) - (b.weather?.temp_max || 0));
+  const weatherCategories = [...new Set(sortedClimateProfiles.map(p => p.weather?.category_name))].filter(Boolean);
   const rooms = [...new Set(climateProfiles.map(p => p.room?.room_name))].filter(Boolean);
   const getProfile = (roomName, weatherCat) => climateProfiles.find(p => p.room?.room_name === roomName && p.weather?.category_name === weatherCat);
   const getCloudName = (cloudObj) => cloudObj?.cloud_name || cloudObj?.name || cloudObj?.category_name || 'Tuntematon';
-  const currentMonthSolar = solarProfiles.filter(sp => sp.month_id === (new Date().getMonth() + 1));
+  
+  // Rullaava 30 päivän logiikka: järjestetään "isoin ensin" (opitun huipputehon mukaan laskevasti, ja varmistuksena cloud_id)
+  const activeSolarProfiles = [...solarProfiles].sort((a, b) => {
+    const powerDiff = (b.max_solar_power_w || 0) - (a.max_solar_power_w || 0);
+    if (powerDiff !== 0) return powerDiff;
+    return (a.cloud?.cloud_id || 0) - (b.cloud?.cloud_id || 0);
+  });
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
@@ -218,7 +236,7 @@ export default function SchedulingTab() {
               <Thermometer size={18} className="text-rosso" /> Kuinka nopeasti huoneet viilenevät?
             </h3>
             <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--color-text-muted)', lineHeight: '1.5' }}>
-              Tekoälyn oppima malli talon lämmönkarkauksesta. Alempi luku kertoo, <strong>kuinka monta tuntia menee, että huone viilenee yhden asteen</strong> ilman lämmitystä. Ylempi luku on patterin vaatima <strong>lisälämpö</strong>, jotta huone pysyy mukavana näillä keleillä.
+              Tekoälyn oppima rullaava malli (viimeiset 30 pv) talon lämmönkarkauksesta. Alempi luku kertoo, <strong>kuinka monta tuntia menee, että huone viilenee yhden asteen</strong>. Ylempi luku on patterin vaatima <strong>lisälämpö</strong>, jotta huone pysyy mukavana.
             </p>
           </div>
           
@@ -228,7 +246,7 @@ export default function SchedulingTab() {
                 <tr style={{ borderBottom: '2px solid var(--color-border)' }}>
                   <th style={{ padding: '8px', color: 'var(--color-text-muted)', fontWeight: 600 }}>Huone</th>
                   {weatherCategories.map(cat => (
-                    <th key={cat} style={{ padding: '8px', color: 'var(--color-text-muted)', fontWeight: 600 }}>{cat}</th>
+                    <th key={cat} style={{ padding: '8px', color: 'var(--color-text-muted)', fontWeight: 600 }}>{cleanCategoryName(cat)}</th>
                   ))}
                 </tr>
               </thead>
@@ -274,28 +292,28 @@ export default function SchedulingTab() {
         <section className="ui-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column' }}>
           <div style={{ marginBottom: '16px' }}>
             <h3 style={{ margin: '0 0 8px 0', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Sun size={18} className="text-saab" /> Aurinkopaneelien tuotto-odotus
+              <Sun size={18} className="text-saab" /> Tuotto-odotus (Viimeiset 30 pv)
             </h3>
             <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--color-text-muted)', lineHeight: '1.5' }}>
-              Historiadatasta opittu arvio siitä, kuinka paljon aurinkopaneelit tuottavat sähköä (watteina) kuluvan kuukauden eri pilvisyystilanteissa. Tekoäly hyödyntää näitä arvoja ennakoidessaan talon saamaa ilmaista lämpöä päiväsaikaan.
+              Historiadatasta oppiva rullaava malli aurinkopaneelien tuotosta (watteina). Tekoäly vertaa tätä dataa sääennusteeseen arvioidakseen talon saaman ilmaisen lämmön päiväsaikaan.
             </p>
           </div>
 
           <div style={{ marginTop: 'auto' }}>
-            {currentMonthSolar.length > 0 ? (
+            {activeSolarProfiles.length > 0 ? (
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
                 <tbody>
-                  {currentMonthSolar.map((sp, i) => (
+                  {activeSolarProfiles.map((sp, i) => (
                     <tr key={sp.solar_profile_id} style={{ borderBottom: '1px solid var(--color-border)', backgroundColor: i % 2 === 0 ? 'transparent' : 'var(--color-bg-clean)' }}>
                       <td style={{ padding: '12px 8px', fontWeight: 600, color: 'var(--color-text-main)' }}>
-                        {getCloudName(sp.cloud)}
+                        {cleanCategoryName(getCloudName(sp.cloud))}
                       </td>
                       <td style={{ padding: '12px 8px', textAlign: 'right' }}>
                         <div style={{ color: 'var(--color-saab)', fontWeight: 'bold', fontSize: '1rem' }} title="Opittu huipputeho">
-                          {sp.max_solar_power_w} W <span style={{ fontSize: '0.7rem', fontWeight: 'normal', color: 'var(--color-text-muted)' }}>(Max)</span>
+                          {formatNumber(sp.max_solar_power_w)} W <span style={{ fontSize: '0.7rem', fontWeight: 'normal', color: 'var(--color-text-muted)' }}>(Max)</span>
                         </div>
                         <div style={{ color: 'var(--color-text-technical)' }} title="Opittu keskiarvotuotto">
-                          {sp.avg_solar_power_w} W <span style={{ fontSize: '0.7rem' }}>(Keskiarvo)</span>
+                          {formatNumber(sp.avg_solar_power_w)} W <span style={{ fontSize: '0.7rem' }}>(Keskiarvo)</span>
                         </div>
                       </td>
                     </tr>
@@ -303,7 +321,7 @@ export default function SchedulingTab() {
                 </tbody>
               </table>
             ) : (
-               <p className="text-muted">Ei aurinkodataa kuluvalle kuukaudelle.</p>
+               <p className="text-muted" style={{ fontSize: '0.85rem' }}>Ei riittävästi aurinkodataa viimeiseltä 30 päivältä.</p>
             )}
           </div>
         </section>
