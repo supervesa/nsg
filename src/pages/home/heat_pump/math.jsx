@@ -1,7 +1,7 @@
 import React from 'react';
-import { Activity, Thermometer, Zap, Coins } from 'lucide-react';
+import { Activity, Thermometer, Zap, Coins, Cloud } from 'lucide-react';
 
-export default function HeatpumpMath({ historyData, nordpoolPrices = [] }) {
+export default function HeatpumpMath({ historyData, nordpoolPrices = [], logHeating = [] }) {
   if (!historyData || historyData.length === 0) {
     return <p className="text-muted">Ei tarpeeksi dataa laskentaan vielä tänään.</p>;
   }
@@ -15,6 +15,17 @@ export default function HeatpumpMath({ historyData, nordpoolPrices = [] }) {
   const target = parseFloat(current.target_temp || 0);
   const deltaT = (room - target).toFixed(1);
   const deltaColor = deltaT > 0 ? 'var(--color-rosso)' : (deltaT < 0 ? 'var(--color-electric)' : 'var(--color-saab)');
+
+  // Ulkolämpötila (Hue-anturi, haetaan uusin saatavilla oleva arvo)
+  let currentOutTemp = '-';
+  if (logHeating && logHeating.length > 0) {
+    const newestLog = logHeating[logHeating.length - 1];
+    if (newestLog.outdoor_temp_hue) {
+      currentOutTemp = parseFloat(newestLog.outdoor_temp_hue).toFixed(1);
+    }
+  }
+  // Muotoillaan plussat ja miinukset nätisti
+  const displayOutTemp = currentOutTemp !== '-' && currentOutTemp > 0 ? `+${currentOutTemp}` : currentOutTemp;
 
   // Päivän kokonaiskulutus
   const energyCurrent = parseFloat(current.energy_consumed || 0);
@@ -87,6 +98,10 @@ export default function HeatpumpMath({ historyData, nordpoolPrices = [] }) {
       <StatItem 
         icon={Thermometer} label="LÄMPÖTILAERO (DELTA T)" 
         value={deltaT > 0 ? `+${deltaT}` : deltaT} unit="°C" color={deltaColor}
+      />
+      <StatItem 
+        icon={Cloud} label="ULKOLÄMPÖTILA (NYT)" 
+        value={displayOutTemp} unit="°C" 
       />
       <StatItem 
         icon={Activity} label="PUMPUN KÄYNTIAIKA TÄNÄÄN" 
