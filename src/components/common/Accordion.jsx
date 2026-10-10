@@ -6,12 +6,12 @@ export default function Accordion({ title, iconName, children, defaultOpen = fal
   const Icon = iconName ? LucideIcons[iconName] : null;
 
   return (
-    <div className="ui-panel smooth-transition" style={{ marginBottom: '16px', overflow: 'hidden' }}>
-      {/* Otsikkorivi (Klikattava) */}
+    <div className="ui-panel smooth-transition" style={{ marginBottom: 'var(--spacing-layout)', overflow: 'hidden' }}>
+      {/* Otsikkorivi */}
       <div 
         onClick={() => setIsOpen(!isOpen)}
         className="flex-between"
-        style={{ padding: '20px 24px', cursor: 'pointer', backgroundColor: isOpen ? 'var(--color-bg-clean)' : 'transparent' }}
+        style={{ padding: 'var(--padding-panel)', cursor: 'pointer', backgroundColor: isOpen ? 'var(--color-bg-clean)' : 'transparent' }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           {Icon && (
@@ -29,7 +29,7 @@ export default function Accordion({ title, iconName, children, defaultOpen = fal
 
       {/* Sisältöalue */}
       {isOpen && (
-        <div style={{ padding: '24px', borderTop: '1px solid var(--color-lancia)' }}>
+        <div style={{ padding: 'var(--padding-panel)', borderTop: '1px solid var(--color-lancia)' }}>
           {children}
         </div>
       )}

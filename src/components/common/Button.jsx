@@ -9,10 +9,11 @@ export default function Button({
   isLoading = false,
   disabled = false,
   icon: Icon,
+  iconPosition = 'left', // KORJAUS: Napataan tämä kiinni täällä!
   className = '',
   style = {},
   onClick,
-  ...props
+  ...props // Nyt iconPosition on siivottu pois, eikä se valu HTML-napille
 }) {
 
   // 1. Valitaan perusluokka nsg-style.css -teemasta
@@ -51,6 +52,8 @@ export default function Button({
   }
 
   // 2. Määritetään koot 
+  const iconSize = size === 'sm' ? 14 : 18; // Määritetään ikonin koko kerran
+  
   if (size === 'sm') {
     inlineStyle.padding = '6px 12px';
     inlineStyle.fontSize = '0.75rem';
@@ -71,22 +74,29 @@ export default function Button({
 
   return (
     <button
-      className={`${variantClass} smooth-transition ${className}`}
+      className={`${variantClass} smooth-transition ${className}`.trim()}
       style={inlineStyle}
       disabled={isDisabled}
       onClick={onClick}
       {...props}
     >
-      {/* Lataussymboli pyörii, jos isLoading on true */}
-      {isLoading ? (
-        <Loader2 size={size === 'sm' ? 14 : 18} className="animate-spin" />
-      ) : (
-        /* Muuten näytetään haluttu ikoni, jos sellainen on annettu */
-        Icon && <Icon size={size === 'sm' ? 14 : 18} />
+      {/* 1. Lataussymboli pyörii, jos isLoading on true (korvaa vasemman ikonin) */}
+      {isLoading && (
+        <Loader2 size={iconSize} className="animate-spin" />
+      )}
+
+      {/* 2. Vasen ikoni (näytetään vain jos ei ladata ja positio on vasen) */}
+      {!isLoading && Icon && iconPosition === 'left' && (
+        <Icon size={iconSize} />
       )}
       
-      {/* Itse painikkeen teksti */}
-      <span>{children}</span>
+      {/* 3. Itse painikkeen teksti */}
+      {children && <span>{children}</span>}
+
+      {/* 4. Oikea ikoni (näytetään vain jos ei ladata ja positio on oikea) */}
+      {!isLoading && Icon && iconPosition === 'right' && (
+        <Icon size={iconSize} />
+      )}
     </button>
   );
 }

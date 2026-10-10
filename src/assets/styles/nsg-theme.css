@@ -26,6 +26,12 @@
   
   --shadow-subtle: 0 2px 10px rgba(0,0,0,0.02); 
   --shadow-elegant: 0 8px 30px rgba(0,0,0,0.04); 
+
+  /* UUDET RESPONSIIVISET VÄLIT */
+  --spacing-layout: 32px;
+  --spacing-grid: 24px;
+  --padding-panel: 20px;
+  --padding-item: 16px 20px;
 }
 
 /* =========================================================
@@ -658,4 +664,29 @@ body {
         margin-right: -16px;
         width: calc(100% + 32px);
     }
+
+@media (max-width: 768px) {
+    :root {
+        /* Tiivistetään komponenttien sisäiset välit mobiilissa */
+        --spacing-layout: 12px;
+        --spacing-grid: 12px;
+        --padding-panel: 12px;
+        --padding-item: 10px 12px;
+    }
+    
+    /* Poistetaan massiiviset reunanavigoinnin tyhjät tilat */
+    .content-area {
+        padding: 8px !important; 
+    }
+
+    /* Pienennetään koko sivun laatikon paddingia mobiilissa (alkuperäinen oli 2rem) */
+    .layout-dashboard {
+        padding: 8px !important;
+    }
+    
+    /* Pienennetään myös yleisiä padding-apuluokkia mobiiliin, jos niitä on käytössä */
+    .p-8 {
+        padding: 16px !important;
+    }
+}
 }
