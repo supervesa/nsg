@@ -16,6 +16,7 @@ export default function Home() {
   const [historyAnalytics, setHistoryAnalytics] = useState([]);
   const [weatherForecast, setWeatherForecast] = useState([]);
   const [logHeating, setLogHeating] = useState([]); // UUSI: Ulkolämpötilat
+  const [kylmioData, setKylmioData] = useState([]); // UUSI: Kylmiön 4h data
 
   // UI-tila
   const [isLoading, setIsLoading] = useState(true);
@@ -37,14 +38,15 @@ export default function Home() {
       sevenDaysAgo.setHours(0, 0, 0, 0); 
       const timeWindowIso = sevenDaysAgo.toISOString();
 
-      const [
+const [
         heatingRes,
         solarRes,
         heatpumpRes,
         nordpoolRes,
         analyticsRes,
         weatherRes,
-        logHeatingRes // UUSI
+        logHeatingRes,
+        kylmioRes // UUSI
       ] = await Promise.all([
         macbase.schema('homeassistant').from('heating_history').select('*').order('recorded_at', { ascending: false }).limit(1).maybeSingle(),
         macbase.schema('homeassistant').from('solar_history').select('*').order('recorded_at', { ascending: false }).limit(4),
@@ -52,7 +54,8 @@ export default function Home() {
         macbase.schema('homeassistant').from('nordpool_prices').select('*').gte('start_time', timeWindowIso),
         macbase.schema('homeassistant').from('history_analytics').select('*').order('hour_id', { ascending: false }).limit(24),
         macbase.schema('homeassistant').from('weather_forecast').select('*').gte('target_time', timeWindowIso).order('target_time', { ascending: true }),
-        macbase.schema('homeassistant').from('log_heating').select('recorded_at, outdoor_temp_mitsu, outdoor_temp_hue').gte('recorded_at', timeWindowIso).order('recorded_at', { ascending: true })
+        macbase.schema('homeassistant').from('log_heating').select('recorded_at, outdoor_temp_mitsu, outdoor_temp_hue').gte('recorded_at', timeWindowIso).order('recorded_at', { ascending: true }),
+        macbase.schema('homeassistant').from('log_appliances_energy').select('*').eq('appliance_name', 'kylmio').order('created_at', { ascending: false }).limit(24) // UUSI (4 tunnin ikkuna)
       ]);
 
       if (heatingRes.error) throw heatingRes.error;
@@ -60,6 +63,7 @@ export default function Home() {
       if (heatpumpRes.error) throw heatpumpRes.error;
       if (nordpoolRes.error) throw nordpoolRes.error;
       if (logHeatingRes.error) throw logHeatingRes.error;
+      if (kylmioRes.error) throw kylmioRes.error; // UUSI
       if (analyticsRes.error && analyticsRes.error.code !== '42P01') throw analyticsRes.error; 
       if (weatherRes.error && weatherRes.error.code !== '42P01') throw weatherRes.error;     
 
@@ -70,6 +74,7 @@ export default function Home() {
       setHistoryAnalytics(analyticsRes.data || []);
       setWeatherForecast(weatherRes.data || []);
       setLogHeating(logHeatingRes.data || []);
+      setKylmioData(kylmioRes.data || []); // UUSI
 
     } catch (err) {
       console.error("Virhe haettaessa kotidataa:", err);
@@ -102,6 +107,7 @@ export default function Home() {
     historyAnalytics,
     weatherForecast,
     logHeating, // Välitetään eteenpäin
+    kylmioData, // UUSI
     isLoading
   };
 
