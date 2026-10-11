@@ -32,6 +32,17 @@
   --spacing-grid: 24px;
   --padding-panel: 20px;
   --padding-item: 16px 20px;
+
+  /* GRAAFIEN JA LISTOJEN RAKENNEVÄRIT */
+  --color-border-subtle: #E5E7EB;         /* Pehmeä viiva listojen väliin ja graafin gridiin */
+  --color-tooltip-bg: rgba(255, 255, 255, 0.95); /* Graafin tooltipin tausta */
+  
+  /* LÄPINÄKYVÄT TÄYTTÖVÄRIT GRAAFEILLE (10% opacity Area-graafeihin) */
+  --color-saab-alpha: rgba(0, 204, 102, 0.1);      /* Vihreä täyttö */
+  --color-electric-alpha: rgba(0, 80, 255, 0.1);   /* Sininen täyttö */
+  --color-hermes-alpha: rgba(250, 91, 0, 0.1);     /* Oranssi täyttö */
+  --color-rosso-alpha: rgba(195, 0, 47, 0.1);      /* Punainen täyttö */
+  
 }
 
 /* =========================================================
