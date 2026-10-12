@@ -200,10 +200,13 @@ export default function SchedulingTab() {
   let dailyPlannedSnt = 0;
   let dailyRealizedKwh = 0;
   let dailyRealizedSnt = 0;
+  let dailyBiasKwh = 0; // UUSI: Päivän AI-korjaukset yhteensä
 
   schedules.forEach(s => {
     dailyPlannedKwh += s.meta?.planned_kwh || 0;
     dailyPlannedSnt += s.meta?.planned_cost_snt || 0;
+    dailyBiasKwh += s.meta?.ai_bias_correction_kwh || 0; // UUSI
+    
     if (s.meta?.realized_kwh !== undefined && s.meta?.realized_kwh !== null) {
       dailyRealizedKwh += s.meta.realized_kwh;
       dailyRealizedSnt += s.meta.realized_raw_cost_snt || 0;
@@ -233,6 +236,8 @@ export default function SchedulingTab() {
         isPast: past,
         schedules: [sched],
         planned_kwh: sched.meta?.planned_kwh || 0,
+        raw_planned_kwh: sched.meta?.raw_planned_kwh || 0, // UUSI
+        ai_bias_correction_kwh: sched.meta?.ai_bias_correction_kwh || 0, // UUSI
         planned_cost_snt: sched.meta?.planned_cost_snt || 0,
         realized_kwh: sched.meta?.realized_kwh || 0,
         realized_raw_cost_snt: sched.meta?.realized_raw_cost_snt || 0,
@@ -252,6 +257,8 @@ export default function SchedulingTab() {
         
         // Summataan lohkon arvot
         currentGroup.planned_kwh += sched.meta?.planned_kwh || 0;
+        currentGroup.raw_planned_kwh += sched.meta?.raw_planned_kwh || 0; // UUSI
+        currentGroup.ai_bias_correction_kwh += sched.meta?.ai_bias_correction_kwh || 0; // UUSI
         currentGroup.planned_cost_snt += sched.meta?.planned_cost_snt || 0;
         if (hasRealized) {
           currentGroup.realized_kwh += sched.meta.realized_kwh;
@@ -271,6 +278,8 @@ export default function SchedulingTab() {
           isPast: past,
           schedules: [sched],
           planned_kwh: sched.meta?.planned_kwh || 0,
+          raw_planned_kwh: sched.meta?.raw_planned_kwh || 0, // UUSI
+          ai_bias_correction_kwh: sched.meta?.ai_bias_correction_kwh || 0, // UUSI
           planned_cost_snt: sched.meta?.planned_cost_snt || 0,
           realized_kwh: sched.meta?.realized_kwh || 0,
           realized_raw_cost_snt: sched.meta?.realized_raw_cost_snt || 0,
@@ -489,7 +498,7 @@ export default function SchedulingTab() {
           </div>
         </div>
         
-        {/* UUSI: PÄIVÄN KOKONAISYHTEENVETO LOKIKIRJAN ALUSSA */}
+        {/* PÄIVÄN KOKONAISYHTEENVETO LOKIKIRJAN ALUSSA */}
         {schedules.length > 0 && (
           <div style={{ 
             backgroundColor: 'var(--color-bg-main)', 
@@ -508,6 +517,11 @@ export default function SchedulingTab() {
               <span style={{ fontWeight: 600, color: 'var(--color-text-main)' }}>
                 {dailyPlannedKwh.toFixed(1)} kWh <span style={{ color: 'var(--color-text-technical)' }}>({formatEur(dailyPlannedSnt)})</span>
               </span>
+              {dailyBiasKwh !== 0 && (
+                <span style={{ fontSize: '0.7rem', color: 'var(--color-electric)', fontWeight: 600 }}>
+                  Sisältää AI-sääkorjausta {dailyBiasKwh > 0 ? '+' : ''}{dailyBiasKwh.toFixed(2)} kWh
+                </span>
+              )}
             </div>
             {dailyRealizedKwh > 0 && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', textAlign: 'right' }}>
@@ -556,7 +570,6 @@ export default function SchedulingTab() {
                   priceDisplay = minP === maxP ? `${minP.toFixed(2)} c` : `${minP.toFixed(1)} – ${maxP.toFixed(1)} c`;
                 }
 
-                // UUSI: LOHKON KULUTUS JA KUSTANNUKSET
                 const estKwh = group.planned_kwh.toFixed(2);
                 const estEur = formatEur(group.planned_cost_snt);
                 
@@ -567,7 +580,6 @@ export default function SchedulingTab() {
                   const realKwh = group.realized_kwh.toFixed(2);
                   const realEur = formatEur(group.realized_raw_cost_snt);
                   
-                  // Värikoodaus: Pienempi kulutus = vihreä, suurempi = punainen
                   if (group.realized_kwh > group.planned_kwh * 1.1) {
                     statsColor = 'var(--color-rosso)';
                   } else if (group.realized_kwh < group.planned_kwh * 0.9) {
@@ -601,7 +613,6 @@ export default function SchedulingTab() {
                       </div>
                       
                       <div style={{ display: 'flex', gap: '12px', fontSize: '0.8rem' }}>
-                        {/* KULUTUSPILLERI TÄSSÄ */}
                         <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 600, color: statsColor, backgroundColor: 'var(--color-bg-clean)', padding: '2px 6px', borderRadius: '4px' }}>
                           <Activity size={12} /> {blockStats}
                         </span>
@@ -620,6 +631,13 @@ export default function SchedulingTab() {
                       {group.eve_thermo_target && (
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: 'var(--color-text-main)', backgroundColor: 'var(--color-bg-clean)', padding: '4px 8px', borderRadius: '4px', fontWeight: 600 }}>
                           <Thermometer size={14} className="text-muted" /> Termostaatit: {group.eve_thermo_target}°C
+                        </span>
+                      )}
+
+                      {/* UUSI: TEKOÄLYN JÄÄNNÖSVIRHEEN KORJAUS PILLERI */}
+                      {group.ai_bias_correction_kwh !== 0 && group.ai_bias_correction_kwh !== undefined && (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: 'var(--color-electric)', backgroundColor: 'var(--color-bg-clean)', padding: '4px 8px', borderRadius: '4px', fontWeight: 600 }} title={`Fysiikan raaka-arvio oli ${group.raw_planned_kwh.toFixed(3)} kWh`}>
+                          <BrainCircuit size={14} /> AI-sääkorjaus: {group.ai_bias_correction_kwh > 0 ? '+' : ''}{group.ai_bias_correction_kwh.toFixed(3)} kWh
                         </span>
                       )}
                     </div>
