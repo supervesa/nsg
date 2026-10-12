@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { macbase } from '../../../config/supabaseClient'; 
-import { BrainCircuit, Thermometer, Sun, Clock, ChevronLeft, ChevronRight, Calendar, Flame, Zap, Cloud, Wallet, TrendingUp, TrendingDown, Receipt, ChevronUp, ChevronDown, Snowflake, Wind, Droplets, RefreshCw, Power } from 'lucide-react';
+import { BrainCircuit, Thermometer, Sun, Clock, ChevronLeft, ChevronRight, Calendar, Flame, Zap, Cloud, Wallet, TrendingUp, TrendingDown, Receipt, ChevronUp, ChevronDown, Snowflake, Wind, Droplets, RefreshCw, Power, Activity } from 'lucide-react';
 import Accordion from '../../../components/common/Accordion';
 import Badge from '../../../components/common/Badge';
 
@@ -89,11 +89,13 @@ export default function SchedulingTab() {
           const schedTime = new Date(sched.target_hour).getTime();
           const priceObj = (nordpoolRes.data || []).find(p => new Date(p.start_time).getTime() === schedTime);
           const weatherObj = (weatherRes.data || []).find(w => new Date(w.target_time).getTime() === schedTime);
+          const parsedMeta = typeof sched.meta === 'string' ? JSON.parse(sched.meta) : (sched.meta || {});
 
           return {
             ...sched,
             price: priceObj ? parseFloat(priceObj.price) : null,
-            cloudCover: weatherObj ? parseFloat(weatherObj.cloud_cover) : null
+            cloudCover: weatherObj ? parseFloat(weatherObj.cloud_cover) : null,
+            meta: parsedMeta
           };
         });
 
@@ -193,6 +195,21 @@ export default function SchedulingTab() {
   const isToday = selectedDate.toDateString() === now.toDateString();
   const currentHour = now.getHours();
 
+  // PÄIVÄKOHTAISTEN KULUTUSTEN YHTEENVETO
+  let dailyPlannedKwh = 0;
+  let dailyPlannedSnt = 0;
+  let dailyRealizedKwh = 0;
+  let dailyRealizedSnt = 0;
+
+  schedules.forEach(s => {
+    dailyPlannedKwh += s.meta?.planned_kwh || 0;
+    dailyPlannedSnt += s.meta?.planned_cost_snt || 0;
+    if (s.meta?.realized_kwh !== undefined && s.meta?.realized_kwh !== null) {
+      dailyRealizedKwh += s.meta.realized_kwh;
+      dailyRealizedSnt += s.meta.realized_raw_cost_snt || 0;
+    }
+  });
+
   // LOKIKIRJAN RYHMITTELYLOGIIKKA (Grouping)
   const groupedSchedules = [];
   let currentGroup = null;
@@ -201,6 +218,8 @@ export default function SchedulingTab() {
     const schedDate = new Date(sched.target_hour);
     const isCurrentHour = isToday && schedDate.getHours() === currentHour;
     const past = isPastTime(sched.target_hour) && !isCurrentHour;
+
+    const hasRealized = sched.meta?.realized_kwh !== undefined && sched.meta?.realized_kwh !== null;
 
     if (!currentGroup) {
       currentGroup = {
@@ -212,7 +231,12 @@ export default function SchedulingTab() {
         ai_reasoning: sched.ai_reasoning,
         isCurrentBlock: isCurrentHour,
         isPast: past,
-        schedules: [sched]
+        schedules: [sched],
+        planned_kwh: sched.meta?.planned_kwh || 0,
+        planned_cost_snt: sched.meta?.planned_cost_snt || 0,
+        realized_kwh: sched.meta?.realized_kwh || 0,
+        realized_raw_cost_snt: sched.meta?.realized_raw_cost_snt || 0,
+        has_realized: hasRealized
       };
     } else {
       if (
@@ -225,6 +249,15 @@ export default function SchedulingTab() {
         currentGroup.schedules.push(sched);
         if (isCurrentHour) currentGroup.isCurrentBlock = true;
         if (!past) currentGroup.isPast = false;
+        
+        // Summataan lohkon arvot
+        currentGroup.planned_kwh += sched.meta?.planned_kwh || 0;
+        currentGroup.planned_cost_snt += sched.meta?.planned_cost_snt || 0;
+        if (hasRealized) {
+          currentGroup.realized_kwh += sched.meta.realized_kwh;
+          currentGroup.realized_raw_cost_snt += sched.meta?.realized_raw_cost_snt || 0;
+          currentGroup.has_realized = true;
+        }
       } else {
         groupedSchedules.push(currentGroup);
         currentGroup = {
@@ -236,7 +269,12 @@ export default function SchedulingTab() {
           ai_reasoning: sched.ai_reasoning,
           isCurrentBlock: isCurrentHour,
           isPast: past,
-          schedules: [sched]
+          schedules: [sched],
+          planned_kwh: sched.meta?.planned_kwh || 0,
+          planned_cost_snt: sched.meta?.planned_cost_snt || 0,
+          realized_kwh: sched.meta?.realized_kwh || 0,
+          realized_raw_cost_snt: sched.meta?.realized_raw_cost_snt || 0,
+          has_realized: hasRealized
         };
       }
     }
@@ -451,6 +489,37 @@ export default function SchedulingTab() {
           </div>
         </div>
         
+        {/* UUSI: PÄIVÄN KOKONAISYHTEENVETO LOKIKIRJAN ALUSSA */}
+        {schedules.length > 0 && (
+          <div style={{ 
+            backgroundColor: 'var(--color-bg-main)', 
+            padding: '12px 16px', 
+            margin: '16px 16px 0 16px', 
+            borderRadius: '8px', 
+            border: '1px solid var(--color-border)', 
+            display: 'flex', 
+            justifyContent: 'space-between',
+            flexWrap: 'wrap', 
+            gap: '12px', 
+            fontSize: '0.85rem' 
+          }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+              <span style={{ color: 'var(--color-text-muted)', fontSize: '0.7rem', textTransform: 'uppercase', fontWeight: 600 }}>Päivän Arvio</span>
+              <span style={{ fontWeight: 600, color: 'var(--color-text-main)' }}>
+                {dailyPlannedKwh.toFixed(1)} kWh <span style={{ color: 'var(--color-text-technical)' }}>({formatEur(dailyPlannedSnt)})</span>
+              </span>
+            </div>
+            {dailyRealizedKwh > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', textAlign: 'right' }}>
+                <span style={{ color: 'var(--color-text-muted)', fontSize: '0.7rem', textTransform: 'uppercase', fontWeight: 600 }}>Toteutunut (tähän mennessä)</span>
+                <span style={{ fontWeight: 600, color: 'var(--color-text-main)' }}>
+                  {dailyRealizedKwh.toFixed(1)} kWh <span style={{ color: 'var(--color-text-technical)' }}>({formatEur(dailyRealizedSnt)})</span>
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+
         <div style={{ display: 'flex', flexDirection: 'column', padding: 'var(--padding-panel)', gap: '16px', backgroundColor: 'var(--color-bg-clean)' }}>
           {isLoadingSchedules ? (
             <div style={{ textAlign: 'center' }} className="text-muted">Ladataan...</div>
@@ -487,6 +556,27 @@ export default function SchedulingTab() {
                   priceDisplay = minP === maxP ? `${minP.toFixed(2)} c` : `${minP.toFixed(1)} – ${maxP.toFixed(1)} c`;
                 }
 
+                // UUSI: LOHKON KULUTUS JA KUSTANNUKSET
+                const estKwh = group.planned_kwh.toFixed(2);
+                const estEur = formatEur(group.planned_cost_snt);
+                
+                let blockStats = `Arvio: ${estKwh} kWh (${estEur})`;
+                let statsColor = 'var(--color-text-technical)';
+                
+                if (group.has_realized) {
+                  const realKwh = group.realized_kwh.toFixed(2);
+                  const realEur = formatEur(group.realized_raw_cost_snt);
+                  
+                  // Värikoodaus: Pienempi kulutus = vihreä, suurempi = punainen
+                  if (group.realized_kwh > group.planned_kwh * 1.1) {
+                    statsColor = 'var(--color-rosso)';
+                  } else if (group.realized_kwh < group.planned_kwh * 0.9) {
+                    statsColor = 'var(--color-saab)';
+                  }
+                  
+                  blockStats = `Arvio: ${estKwh} kWh | Toteutunut: ${realKwh} kWh (${realEur})`;
+                }
+
                 return (
                   <div key={index} style={{ 
                     padding: 'var(--padding-panel)',
@@ -511,6 +601,11 @@ export default function SchedulingTab() {
                       </div>
                       
                       <div style={{ display: 'flex', gap: '12px', fontSize: '0.8rem' }}>
+                        {/* KULUTUSPILLERI TÄSSÄ */}
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 600, color: statsColor, backgroundColor: 'var(--color-bg-clean)', padding: '2px 6px', borderRadius: '4px' }}>
+                          <Activity size={12} /> {blockStats}
+                        </span>
+
                         {priceDisplay !== null && (
                           <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 600, color: 'var(--color-text-main)' }}>
                             <Zap size={12} className="text-muted" /> {priceDisplay}
