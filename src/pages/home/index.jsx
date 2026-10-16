@@ -17,10 +17,11 @@ export default function Home() {
   const [weatherForecast, setWeatherForecast] = useState([]);
   const [logHeating, setLogHeating] = useState([]); 
   
-  // UUDET: Kylmiön ja budjetin tilat
+  // Laitteet ja budjetti
   const [kylmioData, setKylmioData] = useState([]); 
   const [kylmioDaily, setKylmioDaily] = useState([]);
   const [budgetSettings, setBudgetSettings] = useState(null);
+  const [ventilationLogs, setVentilationLogs] = useState([]); // UUSI: Ilmanvaihtokoneen tila
 
   // UI-tila
   const [isLoading, setIsLoading] = useState(true);
@@ -58,7 +59,8 @@ export default function Home() {
         logHeatingRes,
         kylmioRes,
         budgetRes,
-        kylmioDailyRes
+        kylmioDailyRes,
+        ventilationRes // UUSI: Lisätty ilmanvaihtokone
       ] = await Promise.all([
         macbase.schema('homeassistant').from('heating_history').select('*').order('recorded_at', { ascending: false }).limit(1).maybeSingle(),
         macbase.schema('homeassistant').from('solar_history').select('*').order('recorded_at', { ascending: false }).limit(4),
@@ -67,10 +69,14 @@ export default function Home() {
         macbase.schema('homeassistant').from('history_analytics').select('*').order('hour_id', { ascending: false }).limit(24),
         macbase.schema('homeassistant').from('weather_forecast').select('*').gte('target_time', timeWindowIso).order('target_time', { ascending: true }),
         macbase.schema('homeassistant').from('log_heating').select('recorded_at, outdoor_temp_mitsu, outdoor_temp_hue').gte('recorded_at', timeWindowIso).order('recorded_at', { ascending: true }),
-        // UUDET HAUT TÄSTÄ ALASPÄIN:
+        
+        // LAITTEET JA BUDJETTI:
         macbase.schema('homeassistant').from('log_appliances_energy').select('*').eq('appliance_name', 'kylmio').order('created_at', { ascending: false }).limit(24),
         macbase.schema('homeassistant').from('budget_settings').select('*').eq('system_id', 'main_house').maybeSingle(),
-        macbase.schema('homeassistant').from('kylmio_daily_stats').select('*').gte('paiva', startOfMonthIso).order('paiva', { ascending: false })
+        macbase.schema('homeassistant').from('kylmio_daily_stats').select('*').gte('paiva', startOfMonthIso).order('paiva', { ascending: false }),
+        
+        // UUSI HAKU: Ilmanvaihtokoneen data viimeiseltä 7 päivältä
+        macbase.schema('homeassistant').from('log_appliances_energy').select('*').eq('appliance_name', 'ilmanvaihtokone').gte('created_at', timeWindowIso).order('created_at', { ascending: false })
       ]);
 
       if (heatingRes.error) throw heatingRes.error;
@@ -79,6 +85,7 @@ export default function Home() {
       if (nordpoolRes.error) throw nordpoolRes.error;
       if (logHeatingRes.error) throw logHeatingRes.error;
       if (kylmioRes.error) throw kylmioRes.error; 
+      if (ventilationRes.error) throw ventilationRes.error; // UUSI
       
       // Sallitaan 42P01 (Table does not exist) tietyille uusille tauluille/näkymille siltä varalta, että niitä ei ole vielä asennettu
       if (budgetRes.error && budgetRes.error.code !== '42P01') throw budgetRes.error;
@@ -94,10 +101,11 @@ export default function Home() {
       setWeatherForecast(weatherRes.data || []);
       setLogHeating(logHeatingRes.data || []);
       
-      // UUDET:
+      // Laitteet ja budjetti:
       setKylmioData(kylmioRes.data || []); 
       setBudgetSettings(budgetRes.data || null);
       setKylmioDaily(kylmioDailyRes.data || []);
+      setVentilationLogs(ventilationRes.data || []); // UUSI: Viedään tilaan
 
     } catch (err) {
       console.error("Virhe haettaessa kotidataa:", err);
@@ -133,6 +141,7 @@ export default function Home() {
     logHeating, 
     kylmioData, 
     kylmioDaily, 
+    ventilationLogs, // UUSI: Siirretään widgeteille
     budgetSettings,
     isLoading
   };

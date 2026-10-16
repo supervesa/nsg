@@ -2,7 +2,7 @@ import React from 'react';
 import WidgetSmall from '../../../components/common/WidgetSmall';
 import { TrendingDown, TrendingUp, Zap, Car } from 'lucide-react';
 
-export const meta = { order: 5 };
+export const meta = { order: 7 };
 
 // Yhteiset asetukset
 const SLOT_HOURS = 6;
