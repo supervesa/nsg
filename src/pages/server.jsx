@@ -3,7 +3,8 @@ import { supabase } from '../config/supabaseClient';
 import { useSentinel } from '../context/SentinelContext'; 
 import LaunchCard from '../components/common/LaunchCard';
 import Button from '../components/common/Button'; 
-import { ShieldAlert, CheckCircle } from 'lucide-react';
+// Lisätty Code ja FileCode mahdollisina ikoneina
+import { ShieldAlert, CheckCircle, Code, Activity } from 'lucide-react';
 
 const SERVER_URL = 'https://nsg.asuscomm.com'; 
 
@@ -176,6 +177,41 @@ export default function Launchpad() {
           onLaunch={() => handleLaunch('studio', 'supabase-studio', '/')}
           onActivate={() => handleActivate('studio')}
           onReturn={() => handleReturn('/')}
+        />
+
+        {/* UUSI KORTTI: Koodieditori (VS Code) */}
+        <LaunchCard 
+          title="Koodieditori"
+          description="Selainpohjainen Visual Studio Code, kytketty suoraan palvelimen koodikansioihin. Tukee git-versiohallintaa."
+          iconName="Code" 
+          buttonText="Muodosta turvayhteys"
+          isGenerating={loadingTarget === 'vscode'}
+          error={errors['vscode']}
+          
+          readyUrl={readyUrls['vscode']}
+          isActive={activeSessions['vscode']}
+          
+          onLaunch={() => handleLaunch('vscode', 'vs-code', '/vscode/')}
+          onActivate={() => handleActivate('vscode')}
+          onReturn={() => handleReturn('/vscode/')}
+        />
+
+        {/* UUSI KORTTI: Grafana */}
+        <LaunchCard 
+          title="Grafana Analytiikka"
+          description="Kojelaudat ja reaaliaikainen datan visualisointi. Sisältää mm. sähkönkulutuksen ja kaukolämmön (HA-data) seurannan."
+          iconName="Activity" 
+          buttonText="Muodosta turvayhteys"
+          isGenerating={loadingTarget === 'grafana'}
+          error={errors['grafana']}
+          
+          readyUrl={readyUrls['grafana']}
+          isActive={activeSessions['grafana']}
+          
+          // HUOM: Polku on '/grafana/' jolloin Nginx osaa napata sen
+          onLaunch={() => handleLaunch('grafana', 'grafana-dashboard', '/grafana/')}
+          onActivate={() => handleActivate('grafana')}
+          onReturn={() => handleReturn('/grafana/')}
         />
 
         <LaunchCard 

@@ -10,10 +10,10 @@ export default function LaunchCard({
   onLaunch, 
   isGenerating, 
   error,
-  readyUrl,     // TILA 2: Lippu on valmis
-  isActive,     // TILA 3: Istunto on aktiivinen
-  onActivate,   // Funktio Tila 2:n avaamiseen (käyttää lipun)
-  onReturn      // Funktio Tila 3:n avaamiseen (menee suoraan evästeellä)
+  readyUrl,
+  isActive,
+  onActivate,
+  onReturn
 }) {
   const Icon = LucideIcons[iconName] || LucideIcons.Rocket;
 
@@ -21,7 +21,9 @@ export default function LaunchCard({
     display: 'flex',
     flexDirection: 'column',
     height: '100%',
-    padding: '24px'
+    padding: '24px',
+    boxSizing: 'border-box', // TÄRKEÄ MUUTOS: Varmistaa, että padding ei kasvata kortin ulkomittoja
+    minHeight: '250px' // TÄRKEÄ MUUTOS: Asettaa korteille minimikorkeuden, jotta ne pysyvät tasakokoisina, vaikka tekstiä olisi vähemmän
   };
 
   return (
@@ -34,28 +36,28 @@ export default function LaunchCard({
           color: 'var(--color-surface)', 
           padding: '8px', 
           borderRadius: '6px',
-          display: 'flex'
+          display: 'flex',
+          flexShrink: 0 // Estää ikonia kutistumasta
         }}>
           <Icon size={24} />
         </div>
-        <h3 className="text-title" style={{ margin: 0 }}>{title}</h3>
+        <h3 className="text-title" style={{ margin: 0, wordBreak: 'break-word' }}>{title}</h3>
       </div>
       
       {/* Keskiosa: Kuvaus */}
-      <p className="text-muted" style={{ flexGrow: 1, marginBottom: '24px' }}>
+      <p className="text-muted" style={{ flexGrow: 1, marginBottom: '24px', minHeight: '60px' }}> {/* Lisätty minHeight tekstiin */}
         {description}
       </p>
 
       {error && (
-        <div className="text-error">
+        <div className="text-error" style={{ marginBottom: '16px' }}>
           {error}
         </div>
       )}
 
       {/* Alaosa: Kolmivaiheinen Painikelogiikka */}
-      <div style={{ marginTop: 'auto' }}>
+      <div style={{ marginTop: 'auto', flexShrink: 0 }}> {/* flexShrink: 0 estää nappia kutistumasta */}
         {isActive ? (
-          /* VAIHE 3: Istunto auki, palataan suoraan ilman uutta lippua */
           <Button 
             variant="secondary" 
             fullWidth={true} 
@@ -65,7 +67,6 @@ export default function LaunchCard({
             Istunto aktiivinen – Palaa palveluun
           </Button>
         ) : readyUrl ? (
-          /* VAIHE 2: Lippu haettu, avataan ja aktivoidaan istunto */
           <Button 
             variant="success" 
             fullWidth={true} 
@@ -75,7 +76,6 @@ export default function LaunchCard({
             Lippu noudettu! Avaa tästä
           </Button>
         ) : (
-          /* VAIHE 1: Alkutila, haetaan lippu */
           <Button 
             variant="primary" 
             fullWidth={true} 
