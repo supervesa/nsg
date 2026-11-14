@@ -17,11 +17,12 @@ export default function Home() {
   const [weatherForecast, setWeatherForecast] = useState([]);
   const [logHeating, setLogHeating] = useState([]); 
   
-  // Laitteet ja budjetti
+  // Laitteet, budjetti ja AI
   const [kylmioData, setKylmioData] = useState([]); 
   const [kylmioDaily, setKylmioDaily] = useState([]);
   const [budgetSettings, setBudgetSettings] = useState(null);
-  const [ventilationLogs, setVentilationLogs] = useState([]); // UUSI: Ilmanvaihtokoneen tila
+  const [ventilationLogs, setVentilationLogs] = useState([]);
+  const [aiBotLogs, setAiBotLogs] = useState([]); // UUSI: Tila tekoälyn lokeille
 
   // UI-tila
   const [isLoading, setIsLoading] = useState(true);
@@ -60,7 +61,8 @@ export default function Home() {
         kylmioRes,
         budgetRes,
         kylmioDailyRes,
-        ventilationRes // UUSI: Lisätty ilmanvaihtokone
+        ventilationRes,
+        aiBotRes // UUSI: Tekoälyn haku
       ] = await Promise.all([
         macbase.schema('homeassistant').from('heating_history').select('*').order('recorded_at', { ascending: false }).limit(1).maybeSingle(),
         macbase.schema('homeassistant').from('solar_history').select('*').order('recorded_at', { ascending: false }).limit(4),
@@ -75,8 +77,9 @@ export default function Home() {
         macbase.schema('homeassistant').from('budget_settings').select('*').eq('system_id', 'main_house').maybeSingle(),
         macbase.schema('homeassistant').from('kylmio_daily_stats').select('*').gte('paiva', startOfMonthIso).order('paiva', { ascending: false }),
         
-        // UUSI HAKU: Ilmanvaihtokoneen data viimeiseltä 7 päivältä
-        macbase.schema('homeassistant').from('log_appliances_energy').select('*').eq('appliance_name', 'ilmanvaihtokone').gte('created_at', timeWindowIso).order('created_at', { ascending: false })
+        // ILMANVAIHTO JA AI:
+        macbase.schema('homeassistant').from('log_appliances_energy').select('*').eq('appliance_name', 'ilmanvaihtokone').gte('created_at', timeWindowIso).order('created_at', { ascending: false }),
+        macbase.schema('homeassistant').from('bot_homeassistant').select('*').order('created_at', { ascending: false }).limit(3) // UUSI: Haetaan 3 uusinta ajoa
       ]);
 
       if (heatingRes.error) throw heatingRes.error;
@@ -85,13 +88,14 @@ export default function Home() {
       if (nordpoolRes.error) throw nordpoolRes.error;
       if (logHeatingRes.error) throw logHeatingRes.error;
       if (kylmioRes.error) throw kylmioRes.error; 
-      if (ventilationRes.error) throw ventilationRes.error; // UUSI
+      if (ventilationRes.error) throw ventilationRes.error; 
       
       // Sallitaan 42P01 (Table does not exist) tietyille uusille tauluille/näkymille siltä varalta, että niitä ei ole vielä asennettu
       if (budgetRes.error && budgetRes.error.code !== '42P01') throw budgetRes.error;
       if (kylmioDailyRes.error && kylmioDailyRes.error.code !== '42P01') throw kylmioDailyRes.error;
       if (analyticsRes.error && analyticsRes.error.code !== '42P01') throw analyticsRes.error; 
       if (weatherRes.error && weatherRes.error.code !== '42P01') throw weatherRes.error;     
+      if (aiBotRes.error && aiBotRes.error.code !== '42P01') throw aiBotRes.error; // Sallitaan myös, jos tekoälytaulua ei ole vielä
 
       setHeatingData(heatingRes.data || null);
       setSolarData(solarRes.data || []);
@@ -105,7 +109,8 @@ export default function Home() {
       setKylmioData(kylmioRes.data || []); 
       setBudgetSettings(budgetRes.data || null);
       setKylmioDaily(kylmioDailyRes.data || []);
-      setVentilationLogs(ventilationRes.data || []); // UUSI: Viedään tilaan
+      setVentilationLogs(ventilationRes.data || []);
+      setAiBotLogs(aiBotRes.data || []); // UUSI: Asetetaan tekoälydata tilaan
 
     } catch (err) {
       console.error("Virhe haettaessa kotidataa:", err);
@@ -141,7 +146,8 @@ export default function Home() {
     logHeating, 
     kylmioData, 
     kylmioDaily, 
-    ventilationLogs, // UUSI: Siirretään widgeteille
+    ventilationLogs, 
+    aiBotLogs, // UUSI: Välitetään tekoälydata widgeteille
     budgetSettings,
     isLoading
   };
