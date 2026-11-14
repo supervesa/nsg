@@ -20,6 +20,26 @@ const getChipColor = (key) => {
   return 'var(--color-text-technical)';
 };
 
+// Yhdistää (flatten) sisäkkäiset objektit yhdeksi isoksi listaksi asetuksia
+const flattenSettings = (settingsObj) => {
+  if (!settingsObj || typeof settingsObj !== 'object') return {};
+  let result = {};
+  
+  // Etsitään sisältä kpi_targets ja simulator_settings
+  if (settingsObj.kpi_targets) {
+    result = { ...result, ...settingsObj.kpi_targets };
+  }
+  if (settingsObj.simulator_settings) {
+    result = { ...result, ...settingsObj.simulator_settings };
+  }
+  
+  // Jos data olikin jo yhdessä tasossa, yhdistetään se suoraan
+  if (!settingsObj.kpi_targets && !settingsObj.simulator_settings) {
+     result = { ...settingsObj };
+  }
+  return result;
+};
+
 // --- YLÄRIVIN PIENI WIDGET ---
 export function SmallWidget({ data }) {
   const logs = data?.aiBotLogs || [];
@@ -38,8 +58,9 @@ export function SmallWidget({ data }) {
 
   let strategy = "Eco";
   try {
-    const settings = typeof latestLog.proposed_settings === 'string' ? JSON.parse(latestLog.proposed_settings) : latestLog.proposed_settings;
-    if (latestLog.ai_analysis_text?.toLowerCase().includes('comfort') || settings?.normal_thermo_target >= 21) {
+    const settingsRaw = typeof latestLog.proposed_settings === 'string' ? JSON.parse(latestLog.proposed_settings) : (latestLog.proposed_settings || {});
+    const settings = flattenSettings(settingsRaw);
+    if (latestLog.ai_analysis_text?.toLowerCase().includes('comfort') || settings.normal_thermo_target >= 21) {
       strategy = "Comfort";
     }
   } catch (e) {}
@@ -64,16 +85,18 @@ export function NormalWidget({ data }) {
     if (!logs || logs.length === 0) return null;
     const latest = logs[0];
     
-    let settings = {};
+    let settingsRaw = {};
     let wallet = {};
     let env = {};
     
-    try { settings = typeof latest.proposed_settings === 'string' ? JSON.parse(latest.proposed_settings) : latest.proposed_settings || {}; } catch(e){}
-    try { wallet = typeof latest.context_wallet === 'string' ? JSON.parse(latest.context_wallet) : latest.context_wallet || {}; } catch(e){}
-    try { env = typeof latest.context_environment === 'string' ? JSON.parse(latest.context_environment) : latest.context_environment || {}; } catch(e){}
+    try { settingsRaw = typeof latest.proposed_settings === 'string' ? JSON.parse(latest.proposed_settings) : (latest.proposed_settings || {}); } catch(e){}
+    try { wallet = typeof latest.context_wallet === 'string' ? JSON.parse(latest.context_wallet) : (latest.context_wallet || {}); } catch(e){}
+    try { env = typeof latest.context_environment === 'string' ? JSON.parse(latest.context_environment) : (latest.context_environment || {}); } catch(e){}
+
+    const settings = flattenSettings(settingsRaw);
 
     let strategy = "Eco";
-    if (latest.ai_analysis_text?.toLowerCase().includes('comfort') || settings?.normal_thermo_target >= 21) {
+    if (latest.ai_analysis_text?.toLowerCase().includes('comfort') || settings.normal_thermo_target >= 21) {
       strategy = "Comfort";
     }
 
@@ -124,7 +147,6 @@ export function NormalWidget({ data }) {
               <Badge label={strategy} isActive={strategy === 'Comfort'} />
             </div>
             
-            {/* UUSI PARAGRAPH-KOMPONENTTI KÄYTÖSSÄ TÄSSÄ */}
             <Paragraph>
               {greeting}
             </Paragraph>
@@ -135,7 +157,6 @@ export function NormalWidget({ data }) {
                 <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--color-text-main)' }}>Analyysin perustelut</span>
               </div>
               
-              {/* JA TÄSSÄ */}
               <Paragraph variant="muted">
                 {latest.ai_analysis_text}
               </Paragraph>
@@ -152,7 +173,8 @@ export function NormalWidget({ data }) {
             
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
               {Object.entries(settings).map(([key, value]) => {
-                if (typeof value === 'object') return null; 
+                // Poistetaan array-listat (kuten reserve_multipliers) ja omituiset nullit näkyvistä
+                if (typeof value === 'object' || value === null) return null; 
                 return (
                   <div key={key} style={{ 
                     display: 'flex', alignItems: 'center', gap: '6px', 
