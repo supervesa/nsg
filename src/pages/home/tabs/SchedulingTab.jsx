@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { macbase } from '../../../config/supabaseClient'; 
-import { BrainCircuit, Thermometer, Sun, Clock, ChevronLeft, ChevronRight, Calendar, Flame, Zap, Cloud, Wallet, TrendingUp, TrendingDown, Receipt, ChevronUp, ChevronDown, Snowflake, Wind, Droplets, RefreshCw, Power, Activity } from 'lucide-react';
+import { BrainCircuit, Thermometer, Sun, Clock, ChevronLeft, ChevronRight, Calendar, Flame, Zap, Cloud, Wallet, TrendingUp, TrendingDown, Receipt, ChevronUp, ChevronDown, Snowflake, Wind, Droplets, RefreshCw, Power, Activity, ShieldAlert, Cpu } from 'lucide-react';
 import Accordion from '../../../components/common/Accordion';
 import Badge from '../../../components/common/Badge';
 
@@ -26,10 +26,8 @@ export default function SchedulingTab() {
   const [isLoadingWallet, setIsLoadingWallet] = useState(true);
   const [budgetOffset, setBudgetOffset] = useState(0); 
 
-  // Tila lokikirjan menneisyyden ja tulevaisuuden avaamiselle
   const [expandedLogbook, setExpandedLogbook] = useState({ past: false, future: false });
 
-  // Nollataan lokikirjan laajennus kun päivä vaihtuu
   useEffect(() => {
     setExpandedLogbook({ past: false, future: false });
   }, [selectedDate]);
@@ -195,17 +193,16 @@ export default function SchedulingTab() {
   const isToday = selectedDate.toDateString() === now.toDateString();
   const currentHour = now.getHours();
 
-  // PÄIVÄKOHTAISTEN KULUTUSTEN YHTEENVETO
   let dailyPlannedKwh = 0;
   let dailyPlannedSnt = 0;
   let dailyRealizedKwh = 0;
   let dailyRealizedSnt = 0;
-  let dailyBiasKwh = 0; // UUSI: Päivän AI-korjaukset yhteensä
+  let dailyBiasKwh = 0; 
 
   schedules.forEach(s => {
     dailyPlannedKwh += s.meta?.planned_kwh || 0;
     dailyPlannedSnt += s.meta?.planned_cost_snt || 0;
-    dailyBiasKwh += s.meta?.ai_bias_correction_kwh || 0; // UUSI
+    dailyBiasKwh += s.meta?.ai_bias_correction_kwh || 0; 
     
     if (s.meta?.realized_kwh !== undefined && s.meta?.realized_kwh !== null) {
       dailyRealizedKwh += s.meta.realized_kwh;
@@ -213,7 +210,6 @@ export default function SchedulingTab() {
     }
   });
 
-  // LOKIKIRJAN RYHMITTELYLOGIIKKA (Grouping)
   const groupedSchedules = [];
   let currentGroup = null;
 
@@ -223,6 +219,8 @@ export default function SchedulingTab() {
     const past = isPastTime(sched.target_hour) && !isCurrentHour;
 
     const hasRealized = sched.meta?.realized_kwh !== undefined && sched.meta?.realized_kwh !== null;
+    const isSnifferActive = sched.meta?.sniffer_active === true;
+    const snifferAction = sched.meta?.sniffer_action;
 
     if (!currentGroup) {
       currentGroup = {
@@ -236,12 +234,14 @@ export default function SchedulingTab() {
         isPast: past,
         schedules: [sched],
         planned_kwh: sched.meta?.planned_kwh || 0,
-        raw_planned_kwh: sched.meta?.raw_planned_kwh || 0, // UUSI
-        ai_bias_correction_kwh: sched.meta?.ai_bias_correction_kwh || 0, // UUSI
+        raw_planned_kwh: sched.meta?.raw_planned_kwh || 0, 
+        ai_bias_correction_kwh: sched.meta?.ai_bias_correction_kwh || 0, 
         planned_cost_snt: sched.meta?.planned_cost_snt || 0,
         realized_kwh: sched.meta?.realized_kwh || 0,
         realized_raw_cost_snt: sched.meta?.realized_raw_cost_snt || 0,
-        has_realized: hasRealized
+        has_realized: hasRealized,
+        has_sniffer: isSnifferActive,
+        sniffer_action: snifferAction
       };
     } else {
       if (
@@ -255,15 +255,18 @@ export default function SchedulingTab() {
         if (isCurrentHour) currentGroup.isCurrentBlock = true;
         if (!past) currentGroup.isPast = false;
         
-        // Summataan lohkon arvot
         currentGroup.planned_kwh += sched.meta?.planned_kwh || 0;
-        currentGroup.raw_planned_kwh += sched.meta?.raw_planned_kwh || 0; // UUSI
-        currentGroup.ai_bias_correction_kwh += sched.meta?.ai_bias_correction_kwh || 0; // UUSI
+        currentGroup.raw_planned_kwh += sched.meta?.raw_planned_kwh || 0; 
+        currentGroup.ai_bias_correction_kwh += sched.meta?.ai_bias_correction_kwh || 0; 
         currentGroup.planned_cost_snt += sched.meta?.planned_cost_snt || 0;
         if (hasRealized) {
           currentGroup.realized_kwh += sched.meta.realized_kwh;
           currentGroup.realized_raw_cost_snt += sched.meta?.realized_raw_cost_snt || 0;
           currentGroup.has_realized = true;
+        }
+        if (isSnifferActive) {
+          currentGroup.has_sniffer = true;
+          currentGroup.sniffer_action = snifferAction;
         }
       } else {
         groupedSchedules.push(currentGroup);
@@ -278,12 +281,14 @@ export default function SchedulingTab() {
           isPast: past,
           schedules: [sched],
           planned_kwh: sched.meta?.planned_kwh || 0,
-          raw_planned_kwh: sched.meta?.raw_planned_kwh || 0, // UUSI
-          ai_bias_correction_kwh: sched.meta?.ai_bias_correction_kwh || 0, // UUSI
+          raw_planned_kwh: sched.meta?.raw_planned_kwh || 0, 
+          ai_bias_correction_kwh: sched.meta?.ai_bias_correction_kwh || 0, 
           planned_cost_snt: sched.meta?.planned_cost_snt || 0,
           realized_kwh: sched.meta?.realized_kwh || 0,
           realized_raw_cost_snt: sched.meta?.realized_raw_cost_snt || 0,
-          has_realized: hasRealized
+          has_realized: hasRealized,
+          has_sniffer: isSnifferActive,
+          sniffer_action: snifferAction
         };
       }
     }
@@ -292,7 +297,6 @@ export default function SchedulingTab() {
     groupedSchedules.push(currentGroup);
   }
 
-  // Näytettävien lokikirjakorttien logiikka
   let visibleGroups = groupedSchedules;
   let hiddenPastCount = 0;
   let hiddenFutureCount = 0;
@@ -586,68 +590,132 @@ export default function SchedulingTab() {
                     statsColor = 'var(--color-saab)';
                   }
                   
-                  blockStats = `Arvio: ${estKwh} kWh | Toteutunut: ${realKwh} kWh (${realEur})`;
+                  blockStats = `Toteutunut: ${realKwh} kWh (${realEur})`;
                 }
 
                 return (
                   <div key={index} style={{ 
-                    padding: 'var(--padding-panel)',
+                    padding: group.isPast ? '0' : 'var(--padding-panel)',
                     borderRadius: '8px',
                     border: '1px solid var(--color-lancia)', 
-                    opacity: group.isPast && !group.isCurrentBlock ? 0.6 : 1,
+                    opacity: group.isPast && !group.isCurrentBlock ? 0.8 : 1,
                     backgroundColor: group.isCurrentBlock ? 'var(--color-surface)' : (group.isPast ? 'transparent' : 'var(--color-surface)'),
                     borderLeft: group.isCurrentBlock ? '4px solid var(--color-electric)' : '1px solid var(--color-lancia)',
                     boxShadow: group.isCurrentBlock ? 'var(--shadow-subtle)' : 'none',
                     display: 'flex',
                     flexDirection: 'column',
-                    gap: '12px'
+                    gap: group.isPast ? '0' : '12px',
+                    overflow: 'hidden'
                   }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <div style={{ fontWeight: 700, fontSize: '1.05rem', color: group.isCurrentBlock ? 'var(--color-electric)' : 'var(--color-text-main)' }}>
-                          {timeDisplay}
+                    
+                    {/* Kortin Yläosa (Näkyy aina) */}
+                    <div style={{ padding: group.isPast ? 'var(--padding-panel)' : '0', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <div style={{ fontWeight: 700, fontSize: '1.05rem', color: group.isCurrentBlock ? 'var(--color-electric)' : 'var(--color-text-main)' }}>
+                            {timeDisplay}
+                          </div>
+                          {group.isCurrentBlock && (
+                            <Badge label="Nyt" isActive={true} />
+                          )}
                         </div>
-                        {group.isCurrentBlock && (
-                          <Badge label="Nyt" isActive={true} />
-                        )}
-                      </div>
-                      
-                      <div style={{ display: 'flex', gap: '12px', fontSize: '0.8rem' }}>
-                        <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 600, color: statsColor, backgroundColor: 'var(--color-bg-clean)', padding: '2px 6px', borderRadius: '4px' }}>
-                          <Activity size={12} /> {blockStats}
-                        </span>
+                        
+                        <div style={{ display: 'flex', gap: '12px', fontSize: '0.8rem' }}>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 600, color: statsColor, backgroundColor: 'var(--color-bg-clean)', padding: '2px 6px', borderRadius: '4px' }}>
+                            <Activity size={12} /> {blockStats}
+                          </span>
 
-                        {priceDisplay !== null && (
-                          <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 600, color: 'var(--color-text-main)' }}>
-                            <Zap size={12} className="text-muted" /> {priceDisplay}
+                          {priceDisplay !== null && (
+                            <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 600, color: 'var(--color-text-main)' }}>
+                              <Zap size={12} className="text-muted" /> {priceDisplay}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', fontSize: '0.85rem' }}>
+                        {renderIlpMode(group.ilp_mode, group.ilp_target_temp)}
+
+                        {group.eve_thermo_target && (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: 'var(--color-text-main)', backgroundColor: 'var(--color-bg-clean)', padding: '4px 8px', borderRadius: '4px', fontWeight: 600 }}>
+                            <Thermometer size={14} className="text-muted" /> Termostaatit: {group.eve_thermo_target}°C
+                          </span>
+                        )}
+
+                        {group.has_sniffer && (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: 'var(--color-saab)', backgroundColor: 'var(--color-bg-clean)', padding: '4px 8px', borderRadius: '4px', fontWeight: 600 }}>
+                            <ShieldAlert size={14} /> Nuuskijan korjaus ({group.sniffer_action})
                           </span>
                         )}
                       </div>
-                    </div>
 
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', fontSize: '0.85rem' }}>
-                      {renderIlpMode(group.ilp_mode, group.ilp_target_temp)}
-
-                      {group.eve_thermo_target && (
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: 'var(--color-text-main)', backgroundColor: 'var(--color-bg-clean)', padding: '4px 8px', borderRadius: '4px', fontWeight: 600 }}>
-                          <Thermometer size={14} className="text-muted" /> Termostaatit: {group.eve_thermo_target}°C
-                        </span>
-                      )}
-
-                      {/* UUSI: TEKOÄLYN JÄÄNNÖSVIRHEEN KORJAUS PILLERI */}
-                      {group.ai_bias_correction_kwh !== 0 && group.ai_bias_correction_kwh !== undefined && (
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: 'var(--color-electric)', backgroundColor: 'var(--color-bg-clean)', padding: '4px 8px', borderRadius: '4px', fontWeight: 600 }} title={`Fysiikan raaka-arvio oli ${group.raw_planned_kwh.toFixed(3)} kWh`}>
-                          <BrainCircuit size={14} /> AI-sääkorjaus: {group.ai_bias_correction_kwh > 0 ? '+' : ''}{group.ai_bias_correction_kwh.toFixed(3)} kWh
-                        </span>
+                      {group.ai_reasoning && (
+                        <div style={{ display: 'flex', gap: '6px', alignItems: 'flex-start', color: 'var(--color-text-muted)', fontSize: '0.85rem', lineHeight: '1.4', marginTop: '4px' }}>
+                          <BrainCircuit size={16} className={group.isCurrentBlock ? "text-electric" : "text-muted"} style={{ flexShrink: 0, marginTop: '2px' }} />
+                          <span>{group.ai_reasoning}</span>
+                        </div>
                       )}
                     </div>
 
-                    {group.ai_reasoning && (
-                      <div style={{ display: 'flex', gap: '6px', alignItems: 'flex-start', color: 'var(--color-text-muted)', fontSize: '0.85rem', lineHeight: '1.4', marginTop: '4px' }}>
-                        <BrainCircuit size={16} className={group.isCurrentBlock ? "text-electric" : "text-muted"} style={{ flexShrink: 0, marginTop: '2px' }} />
-                        <span>{group.ai_reasoning}</span>
-                      </div>
+                    {/* LAAJENNETTAVA ANALYYSI MENNEILLE TUNNEILLE */}
+                    {group.isPast && (
+                      <Accordion title="Analyysi ja Toteutuma" iconName="Cpu">
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', fontSize: '0.8rem', color: 'var(--color-text-main)' }}>
+                          
+                          {/* Fysiikkamallin arvio vs. Toteutuma */}
+                          <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--color-lancia)', paddingBottom: '8px' }}>
+                            <span style={{ color: 'var(--color-text-muted)' }}>Raaka-arvio (Fysiikka)</span>
+                            <span style={{ fontWeight: 600 }}>{group.raw_planned_kwh.toFixed(3)} kWh</span>
+                          </div>
+                          
+                          {group.ai_bias_correction_kwh !== 0 && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--color-lancia)', paddingBottom: '8px' }}>
+                              <span style={{ color: 'var(--color-text-muted)' }}>Tekoälyn sääkorjaus</span>
+                              <span style={{ fontWeight: 600, color: 'var(--color-electric)' }}>{group.ai_bias_correction_kwh > 0 ? '+' : ''}{group.ai_bias_correction_kwh.toFixed(3)} kWh</span>
+                            </div>
+                          )}
+
+                          <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--color-lancia)', paddingBottom: '8px' }}>
+                            <span style={{ color: 'var(--color-text-muted)' }}>Lopullinen arvio (Ennuste)</span>
+                            <span style={{ fontWeight: 600 }}>{group.planned_kwh.toFixed(3)} kWh</span>
+                          </div>
+                          
+                          {group.has_realized && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--color-lancia)', paddingBottom: '8px' }}>
+                              <span style={{ color: 'var(--color-text-muted)' }}>Toteutunut kulutus</span>
+                              <span style={{ fontWeight: 600, color: group.realized_kwh > group.planned_kwh * 1.1 ? 'var(--color-rosso)' : 'var(--color-saab)' }}>
+                                {group.realized_kwh.toFixed(3)} kWh
+                              </span>
+                            </div>
+                          )}
+
+                          {/* Termostaattien Offsets (jos valittu eka tunti sisältää ne meta-datassa) */}
+                          {group.schedules[0]?.meta?.applied_targets && (
+                            <div style={{ marginTop: '8px', backgroundColor: 'var(--color-bg-main)', padding: '12px', borderRadius: '6px' }}>
+                              <div style={{ color: 'var(--color-text-technical)', textTransform: 'uppercase', fontSize: '0.7rem', fontWeight: 600, marginBottom: '8px' }}>Huonekohtainen ohjaus</div>
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                                {Object.entries(group.schedules[0].meta.applied_targets).map(([room, target]) => {
+                                  const aiOffset = group.schedules[0].meta.ai_offsets_used?.[room];
+                                  const manualOffset = group.schedules[0].meta.manual_offsets_used?.[room];
+                                  let offsetText = '';
+                                  if (manualOffset) offsetText = `(Käsin: ${manualOffset})`;
+                                  else if (aiOffset) offsetText = `(AI: ${aiOffset})`;
+
+                                  return (
+                                    <div key={room} style={{ display: 'flex', gap: '4px', backgroundColor: 'var(--color-surface)', padding: '4px 8px', borderRadius: '4px', border: '1px solid var(--color-border)' }}>
+                                      <span style={{ color: 'var(--color-text-muted)', textTransform: 'capitalize' }}>{room}:</span>
+                                      <span style={{ fontWeight: 600 }}>{parseFloat(target).toFixed(1)}°C {offsetText && <span style={{ fontSize: '0.7rem', color: 'var(--color-electric)', fontWeight: 'normal' }}>{offsetText}</span>}</span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+
+                        </div>
+                      </Accordion>
                     )}
+
                   </div>
                 );
               })}
