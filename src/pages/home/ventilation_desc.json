@@ -1,0 +1,84 @@
+{
+  "price_limit_home": {
+    "default": 15.0,
+    "description": "Pörssisähkön hintaraja (snt/kWh) kotona-aikoina. Kone voidaan sammuttaa vasta, kun hinta ylittää tämän rajan ja sää on vakaa."
+  },
+  "price_limit_away": {
+    "default": 10.0,
+    "description": "Pörssisähkön hintaraja (snt/kWh) arjen työaikana (AWAY_WORK). Mahdollistaa herkemmän sammutuksen, kun kukaan ei ole kotona."
+  },
+  "price_limit_night": {
+    "default": 10.0,
+    "description": "Pörssisähkön hintaraja (snt/kWh) yö- ja siirtymäaikoina (NIGHT_OR_TRANSITION)."
+  },
+  "price_force_on_below": {
+    "default": 3.0,
+    "description": "Halvan sähkön alaraja (snt/kWh). Jos hinta on tämän tai alle, kone pidetään aina päällä profiilista riippumatta."
+  },
+  "min_on_hours": {
+    "default": 3,
+    "description": "Ramppauksen esto (tuntia). Kun kone käynnistyy, se pidetään päällä vähintään näin monta tuntia putkeen."
+  },
+  "max_off_hours": {
+    "default": 6,
+    "description": "Maksimisammutusaika (tuntia). Kun kone on ollut yhtäjaksoisesti pois päältä näin monta tuntia, se pakotetaan päälle."
+  },
+  "min_daily_on_pct": {
+    "default": 50,
+    "description": "Liukuva 24 tunnin vähimmäiskäyntisuhde (%). Jos viimeisen 24 tunnin päälläolo-osuus alittaa rajan, kone pakotetaan päälle hinnan yli."
+  },
+  "max_humidity_pct": {
+    "default": 70.0,
+    "description": "Kriittinen sisäilman suhteellinen kosteusraja (%). Ylitys pakottaa koneen aina päälle."
+  },
+  "temp_delta_threshold": {
+    "default": 3.0,
+    "description": "Ulkolämpötilan 3 tunnin muutoksen itseisarvoraja (°C). Jos lämpötila muuttuu vähintään tämän verran, kone pidetään päällä."
+  },
+  "winter_temp_limit": {
+    "default": -5.0,
+    "description": "Talviraja (°C). Kun ulkolämpötila alittaa tämän rajan, kone pakotetaan pysymään päällä jäätymis- ja kondenssiriskin vuoksi."
+  },
+  "weekend_always_home": {
+    "default": true,
+    "description": "Arki vs. viikonloppu -kytkin. Jos true, lauantaisin ja sunnuntaisin käytetään viikonlopun kotonaoloaikataulua ilman työaikajaksoa."
+  },
+  "force_on_until": {
+    "default": null,
+    "description": "Valinnainen ISO-8601-aikaleima (esim. '2026-11-20T23:00:00+02:00') tilapäiselle pakkokäynnille (sauna/vieraat). Null poistaa ohituksen."
+  },
+  "schedule": {
+    "home_morning_start": {
+      "default": 7,
+      "description": "Arjen aamun kotona-profiilin alkutunti (0–23, Suomen aika)."
+    },
+    "home_morning_end": {
+      "default": 9,
+      "description": "Arjen aamun kotona-profiilin lopputunti (ei sisälly, esim. 9 = klo 08:59 asti)."
+    },
+    "away_work_start": {
+      "default": 12,
+      "description": "Arjen työajan (poissaolo) alkutunti (0–23, Suomen aika)."
+    },
+    "away_work_end": {
+      "default": 16,
+      "description": "Arjen työajan (poissaolo) lopputunti (ei sisälly, esim. 16 = klo 15:59 asti)."
+    },
+    "home_evening_start": {
+      "default": 17,
+      "description": "Arjen illan kotona-profiilin alkutunti (0–23, Suomen aika)."
+    },
+    "home_evening_end": {
+      "default": 24,
+      "description": "Arjen illan kotona-profiilin lopputunti (24 tai 0 = keskiyöhön asti)."
+    },
+    "weekend_home_start": {
+      "default": 7,
+      "description": "Viikonlopun (la–su) kotona-profiilin alkutunti (0–23, Suomen aika)."
+    },
+    "weekend_home_end": {
+      "default": 24,
+      "description": "Viikonlopun (la–su) kotona-profiilin lopputunti (24 tai 0 = keskiyöhön asti)."
+    }
+  }
+}

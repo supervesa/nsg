@@ -1,14 +1,20 @@
 {
 	"geolocation": {
 		"data": {
+			"city": "Mikkeli",
 			"country": {
 				"code": "FI",
 				"name": "Finland"
 			},
+			"subdivision": {
+				"code": "04",
+				"name": "Southern Savonia"
+			},
 			"timezone": "Europe/Helsinki",
-			"latitude": 60.1717,
-			"longitude": 24.9349
+			"latitude": 61.6874,
+			"longitude": 27.32,
+			"postalCode": "50190"
 		},
-		"timestamp": 1794743040764
+		"timestamp": 1795202561703
 	}
 }
