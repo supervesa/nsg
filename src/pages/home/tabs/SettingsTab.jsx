@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { macbase } from '../../../config/supabaseClient';
-import { Settings, Cpu, Wallet, Save, RefreshCcw, Loader2, AlertCircle, Clock, X } from 'lucide-react';
+import { Save, RefreshCcw, Loader2, AlertCircle, Clock, X } from 'lucide-react';
 import Accordion from '../../../components/common/Accordion';
 import Toggle from '../../../components/common/Toggle';
 import Input from '../../../components/common/Input';
@@ -14,6 +14,7 @@ export const meta = {
 };
 
 const VENTILATION_KEY = 'ventilation_smart_control';
+const AWAY_KEY = 'away_mode';
 
 const DEFAULT_VENTILATION_CONFIG = {
   price_limit_home: 15.0,
@@ -39,6 +40,58 @@ const DEFAULT_VENTILATION_CONFIG = {
     weekend_home_end: 24
   }
 };
+
+const DEFAULT_AWAY_CONFIG = {
+  active_from: null,
+  active_until: null,
+  return_prep_hours: 4,
+  ventilation_hours_per_day: 6,
+  ventilation_max_off_hours: 12,
+  ilp_hours_per_day: 6,
+  heating_target_temp: 17.0
+};
+
+const AWAY_NUMERIC_FIELDS = [
+{
+    key: 'ilp_hours_per_day',
+    label: 'ILP:n lämmityskiintiö',
+    unit: 'h / vrk',
+    step: '1',
+    isInt: true,
+    min: 0,
+    max: 24,
+    description: 'Jaetaan kahteen 12h puoliskoon päivän halvimpiin tunteihin. Muina tunteina ILP on pois päältä (off).'
+  },
+  {
+    key: 'ventilation_hours_per_day',
+    label: 'Ilmanvaihdon käyntikiintiö',
+    unit: 'h / vrk',
+    step: '1',
+    isInt: true,
+    min: 0,
+    max: 24,
+    description: 'Jaetaan kahteen 12h puoliskoon päivän halvimpiin yhtäjaksoisiin tunteihin (esim. 6 h = 3 h + 3 h).'
+  },
+  {
+    key: 'ventilation_max_off_hours',
+    label: 'Ilmanvaihdon maksimitauko',
+    unit: 'h',
+    step: '1',
+    isInt: true,
+    min: 1,
+    max: 24,
+    description: 'Vararaja poissaolon ajalle: pakottaa tuuletuksen, jos hintadataa puuttuu tai tauko venyy.'
+  },
+  {
+    key: 'heating_target_temp',
+    label: 'Lämmityksen poissaololämpötila',
+    unit: '°C',
+    step: '0.5',
+    min: 10,
+    max: 25,
+    description: 'Tavoitelämpötila poissaolon ajalle (lämmityssimulaattoria varten).'
+  }
+];
 
 const VENTILATION_FIELD_GROUPS = [
   {
@@ -178,7 +231,7 @@ const formatLabel = (key) => {
     .replace(/\b\w/g, (l) => l.toUpperCase());
 };
 
-// Turvallinen JSON-parsinta, joka korjaa SQL-inserttien tuplalainausmerkit (esim. '"{...}"')
+// Turvallinen JSON-parsinta, joka korjaa SQL-inserttien tuplalainausmerkit
 const safeParseJSON = (data) => {
   if (!data) return {};
   if (typeof data === 'object') return data;
@@ -192,15 +245,63 @@ const safeParseJSON = (data) => {
   }
 };
 
-// Muodostaa lomakkeelle turvallisen ilmanvaihtotilan (numerot merkkijonoina miinusmerkin ja tyhjennyksen vuoksi)
+// ISO-aikaleima -> HTML datetime-local -kentän muoto (YYYY-MM-DDTHH:mm)
+const isoToLocalInputValue = (isoStr) => {
+  if (!isoStr) return '';
+  const d = new Date(isoStr);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+
+// HTML datetime-local -> ISO-8601 UTC -aikaleima (tai null)
+const localInputValueToIso = (localStr, fieldLabel) => {
+  if (!localStr || !String(localStr).trim()) return null;
+  const d = new Date(localStr);
+  if (Number.isNaN(d.getTime())) {
+    throw new Error(`Kentän "${fieldLabel}" aikaleima ei ole kelvollinen.`);
+  }
+  return d.toISOString();
+};
+
+// Muotoilee aikaleiman Suomen aikaan luettavaan muotoon
+const formatHelsinkiTimestamp = (dateOrIso) => {
+  if (!dateOrIso) return null;
+  const d = dateOrIso instanceof Date ? dateOrIso : new Date(dateOrIso);
+  if (Number.isNaN(d.getTime())) return String(dateOrIso);
+  return d.toLocaleString('fi-FI', {
+    timeZone: 'Europe/Helsinki',
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+};
+
+// Yhteinen numerovalidaattori lomaketiloille
+const parseValidatedNumber = (raw, label, { isInt = false, min = null, max = null } = {}) => {
+  const normalized = String(raw ?? '').replace(',', '.').trim();
+  if (normalized === '') {
+    throw new Error(`Kenttä "${label}" ei voi olla tyhjä.`);
+  }
+  const num = isInt ? parseInt(normalized, 10) : parseFloat(normalized);
+  if (Number.isNaN(num)) {
+    throw new Error(`Kentän "${label}" arvo ei ole kelvollinen numero.`);
+  }
+  if (min !== null && num < min) {
+    throw new Error(`Kentän "${label}" arvon on oltava vähintään ${min}.`);
+  }
+  if (max !== null && num > max) {
+    throw new Error(`Kentän "${label}" arvo voi olla enintään ${max}.`);
+  }
+  return num;
+};
+
+// Ilmanvaihdon lomaketila
 const toVentilationFormState = (rawConfig) => {
   const parsed = safeParseJSON(rawConfig);
   const rawSchedule = parsed.schedule && typeof parsed.schedule === 'object' ? parsed.schedule : {};
-
-  const numStr = (val, fallback) => {
-    const resolved = val !== null && val !== undefined && val !== '' ? val : fallback;
-    return String(resolved);
-  };
+  const numStr = (val, fallback) => String(val !== null && val !== undefined && val !== '' ? val : fallback);
 
   return {
     price_limit_home: numStr(parsed.price_limit_home, DEFAULT_VENTILATION_CONFIG.price_limit_home),
@@ -228,69 +329,99 @@ const toVentilationFormState = (rawConfig) => {
   };
 };
 
-// Muuntaa lomaketilan tietokannan JSONB-muotoon ja validoi arvot ennen tallennusta
-const buildVentilationPayload = (formState) => {
-  const parseNum = (raw, label, { isInt = false, min = null, max = null } = {}) => {
-    const normalized = String(raw ?? '').replace(',', '.').trim();
-    if (normalized === '') {
-      throw new Error(`Kenttä "${label}" ei voi olla tyhjä.`);
-    }
-    const num = isInt ? parseInt(normalized, 10) : parseFloat(normalized);
-    if (Number.isNaN(num)) {
-      throw new Error(`Kentän "${label}" arvo ei ole kelvollinen numero.`);
-    }
-    if (min !== null && num < min) {
-      throw new Error(`Kentän "${label}" arvon on oltava vähintään ${min}.`);
-    }
-    if (max !== null && num > max) {
-      throw new Error(`Kentän "${label}" arvo voi olla enintään ${max}.`);
-    }
-    return num;
-  };
+// Poissaolotilan lomaketila
+const toAwayFormState = (rawConfig) => {
+  const parsed = safeParseJSON(rawConfig);
+  const numStr = (val, fallback) => String(val !== null && val !== undefined && val !== '' ? val : fallback);
 
+  return {
+    active_from: isoToLocalInputValue(parsed.active_from),
+    active_until: isoToLocalInputValue(parsed.active_until),
+    return_prep_hours: numStr(parsed.return_prep_hours, DEFAULT_AWAY_CONFIG.return_prep_hours),
+    ventilation_hours_per_day: numStr(parsed.ventilation_hours_per_day, DEFAULT_AWAY_CONFIG.ventilation_hours_per_day),
+    ventilation_max_off_hours: numStr(parsed.ventilation_max_off_hours, DEFAULT_AWAY_CONFIG.ventilation_max_off_hours),
+    ilp_hours_per_day: numStr(parsed.ilp_hours_per_day, DEFAULT_AWAY_CONFIG.ilp_hours_per_day),
+    heating_target_temp: numStr(parsed.heating_target_temp, DEFAULT_AWAY_CONFIG.heating_target_temp)
+  };
+};
+
+const buildVentilationPayload = (formState) => {
   const schedule = {};
   for (const row of SCHEDULE_ROWS) {
-    const startVal = parseNum(formState.schedule[row.startKey], `${row.label} (alku)`, { isInt: true, min: 0, max: 23 });
-    const endVal = parseNum(formState.schedule[row.endKey], `${row.label} (loppu)`, { isInt: true, min: 0, max: 24 });
-    schedule[row.startKey] = startVal;
-    schedule[row.endKey] = endVal;
+    schedule[row.startKey] = parseValidatedNumber(formState.schedule[row.startKey], `${row.label} (alku)`, { isInt: true, min: 0, max: 23 });
+    schedule[row.endKey] = parseValidatedNumber(formState.schedule[row.endKey], `${row.label} (loppu)`, { isInt: true, min: 0, max: 24 });
   }
 
   return {
-    price_limit_home: parseNum(formState.price_limit_home, 'Hintaraja: Kotona'),
-    price_limit_away: parseNum(formState.price_limit_away, 'Hintaraja: Töissä / Poissa'),
-    price_limit_night: parseNum(formState.price_limit_night, 'Hintaraja: Yö / Siirtymä'),
-    price_force_on_below: parseNum(formState.price_force_on_below, 'Halvan sähkön pakkokäynti'),
-    min_on_hours: parseNum(formState.min_on_hours, 'Minimikäyntiaika', { isInt: true, min: 1, max: 24 }),
-    max_off_hours: parseNum(formState.max_off_hours, 'Maksimisammutusaika', { isInt: true, min: 1, max: 24 }),
-    min_daily_on_pct: parseNum(formState.min_daily_on_pct, 'Vähimmäiskäyntisuhde (24h)', { min: 0, max: 100 }),
-    max_humidity_pct: parseNum(formState.max_humidity_pct, 'Kriittinen kosteusraja', { min: 20, max: 100 }),
-    temp_delta_threshold: parseNum(formState.temp_delta_threshold, 'Lämpötiladelta (3h)', { min: 0 }),
-    winter_temp_limit: parseNum(formState.winter_temp_limit, 'Talviraja (pakkassuoja)'),
+    price_limit_home: parseValidatedNumber(formState.price_limit_home, 'Hintaraja: Kotona'),
+    price_limit_away: parseValidatedNumber(formState.price_limit_away, 'Hintaraja: Töissä / Poissa'),
+    price_limit_night: parseValidatedNumber(formState.price_limit_night, 'Hintaraja: Yö / Siirtymä'),
+    price_force_on_below: parseValidatedNumber(formState.price_force_on_below, 'Halvan sähkön pakkokäynti'),
+    min_on_hours: parseValidatedNumber(formState.min_on_hours, 'Minimikäyntiaika', { isInt: true, min: 1, max: 24 }),
+    max_off_hours: parseValidatedNumber(formState.max_off_hours, 'Maksimisammutusaika', { isInt: true, min: 1, max: 24 }),
+    min_daily_on_pct: parseValidatedNumber(formState.min_daily_on_pct, 'Vähimmäiskäyntisuhde (24h)', { min: 0, max: 100 }),
+    max_humidity_pct: parseValidatedNumber(formState.max_humidity_pct, 'Kriittinen kosteusraja', { min: 20, max: 100 }),
+    temp_delta_threshold: parseValidatedNumber(formState.temp_delta_threshold, 'Lämpötiladelta (3h)', { min: 0 }),
+    winter_temp_limit: parseValidatedNumber(formState.winter_temp_limit, 'Talviraja (pakkassuoja)'),
     weekend_always_home: Boolean(formState.weekend_always_home),
     force_on_until: formState.force_on_until || null,
     schedule
   };
 };
 
-// Muotoilee ISO-aikaleiman Suomen aikaan
-const formatHelsinkiTimestamp = (isoStr) => {
-  if (!isoStr) return null;
-  const d = new Date(isoStr);
-  if (Number.isNaN(d.getTime())) return isoStr;
-  return d.toLocaleString('fi-FI', {
-    timeZone: 'Europe/Helsinki',
-    day: '2-digit',
-    month: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit'
-  });
+const buildAwayPayload = (formState) => {
+  const activeFromIso = localInputValueToIso(formState.active_from, 'Aloitusaika');
+  const activeUntilIso = localInputValueToIso(formState.active_until, 'Suunniteltu paluu');
+
+  if (activeFromIso && activeUntilIso && new Date(activeUntilIso) <= new Date(activeFromIso)) {
+    throw new Error('Suunnitellun paluun on oltava aloitusajan jälkeen.');
+  }
+
+  return {
+    active_from: activeFromIso,
+    active_until: activeUntilIso,
+    return_prep_hours: parseValidatedNumber(formState.return_prep_hours, 'Paluun esivalmisteluaika', { isInt: true, min: 0, max: 48 }),
+    ventilation_hours_per_day: parseValidatedNumber(formState.ventilation_hours_per_day, 'Ilmanvaihdon käyntikiintiö', { isInt: true, min: 0, max: 24 }),
+    ventilation_max_off_hours: parseValidatedNumber(formState.ventilation_max_off_hours, 'Ilmanvaihdon maksimitauko', { isInt: true, min: 1, max: 24 }),
+    ilp_hours_per_day: parseValidatedNumber(formState.ilp_hours_per_day, 'ILP:n lämmityskiintiö', { isInt: true, min: 0, max: 24 }),
+    heating_target_temp: parseValidatedNumber(formState.heating_target_temp, 'Lämmityksen poissaololämpötila', { min: 10, max: 25 })
+  };
+};
+
+// Laskee selkokielisen tilayhteenvedon poissaolokortille
+const getAwayStatusSummary = (isActive, awayForm) => {
+  if (!isActive) {
+    return 'Pois päältä. Laita "Away Mode" päälle yllä olevasta Automaatiot-listasta tai ajasta päivämäärät valmiiksi.';
+  }
+
+  const now = new Date();
+  const fromDate = awayForm.active_from ? new Date(awayForm.active_from) : null;
+  const untilDate = awayForm.active_until ? new Date(awayForm.active_until) : null;
+  const prepHours = Math.max(0, parseInt(awayForm.return_prep_hours, 10) || 0);
+  const prepStart = untilDate && !Number.isNaN(untilDate.getTime())
+    ? new Date(untilDate.getTime() - prepHours * 60 * 60 * 1000)
+    : null;
+
+  if (fromDate && !Number.isNaN(fromDate.getTime()) && now < fromDate) {
+    return `Ajastettu alkamaan ${formatHelsinkiTimestamp(fromDate)}${untilDate ? `, paluu ${formatHelsinkiTimestamp(untilDate)}` : ''}.`;
+  }
+  if (untilDate && !Number.isNaN(untilDate.getTime()) && now >= untilDate) {
+    return `Suunniteltu paluu (${formatHelsinkiTimestamp(untilDate)}) on ohitettu — järjestelmä toimii normaalitilassa.`;
+  }
+  if (prepStart && now >= prepStart && untilDate) {
+    return `Paluun esivalmistelu käynnissä (alkoi ${formatHelsinkiTimestamp(prepStart)}, paluu ${formatHelsinkiTimestamp(untilDate)}).`;
+  }
+  if (untilDate && prepStart) {
+    return `Poissaolo aktiivinen. Paluun esivalmistelu käynnistyy ${formatHelsinkiTimestamp(prepStart)} (paluu ${formatHelsinkiTimestamp(untilDate)}).`;
+  }
+  return 'Poissaolo aktiivinen toistaiseksi (suunniteltua paluuaikaa ei asetettu).';
 };
 
 export default function SettingsTab() {
   const [originalData, setOriginalData] = useState({
     switchboard: [],
     ventilationConfig: toVentilationFormState(null),
+    awayConfig: toAwayFormState(null),
     budgetRoot: {},
     budgetKpi: {},
     budgetSim: {}
@@ -299,6 +430,7 @@ export default function SettingsTab() {
   const [localData, setLocalData] = useState({
     switchboard: [],
     ventilationConfig: toVentilationFormState(null),
+    awayConfig: toAwayFormState(null),
     budgetRoot: {},
     budgetKpi: {},
     budgetSim: {}
@@ -327,14 +459,12 @@ export default function SettingsTab() {
       const switches = switchRes.data || [];
       const bData = budgetRes.data || {};
       const ventRow = switches.find((sw) => sw.automation_key === VENTILATION_KEY);
-
-      const kpi = safeParseJSON(bData.kpi_targets);
-      const sim = safeParseJSON(bData.simulator_settings);
-      const ventConfig = toVentilationFormState(ventRow?.config);
+      const awayRow = switches.find((sw) => sw.automation_key === AWAY_KEY);
 
       const loadedData = {
         switchboard: switches,
-        ventilationConfig: ventConfig,
+        ventilationConfig: toVentilationFormState(ventRow?.config),
+        awayConfig: toAwayFormState(awayRow?.config),
         budgetRoot: {
           monthly_budget_eur: bData.monthly_budget_eur,
           monthly_fee_eur: bData.monthly_fee_eur,
@@ -342,8 +472,8 @@ export default function SettingsTab() {
           electricity_tax_snt: bData.electricity_tax_snt,
           spot_margin_snt: bData.spot_margin_snt
         },
-        budgetKpi: kpi,
-        budgetSim: sim
+        budgetKpi: safeParseJSON(bData.kpi_targets),
+        budgetSim: safeParseJSON(bData.simulator_settings)
       };
 
       setOriginalData(JSON.parse(JSON.stringify(loadedData)));
@@ -356,7 +486,6 @@ export default function SettingsTab() {
     }
   };
 
-  // Käsittelee Toggle-kytkimen (Switchboard) muutoksen lokaaliin tilaan
   const handleToggleSwitch = (key, currentVal) => {
     setLocalData((prev) => ({
       ...prev,
@@ -366,7 +495,6 @@ export default function SettingsTab() {
     }));
   };
 
-  // Käsittelee yleisten budjettikenttien muutoksen
   const handleInputChange = (section, key, val) => {
     setLocalData((prev) => ({
       ...prev,
@@ -377,7 +505,6 @@ export default function SettingsTab() {
     }));
   };
 
-  // Käsittelee ilmanvaihdon juuritason parametrin muutoksen
   const handleVentChange = (key, val) => {
     setLocalData((prev) => ({
       ...prev,
@@ -388,7 +515,6 @@ export default function SettingsTab() {
     }));
   };
 
-  // Käsittelee ilmanvaihdon kellonaika-asetuksen muutoksen
   const handleVentScheduleChange = (key, val) => {
     setLocalData((prev) => ({
       ...prev,
@@ -402,7 +528,16 @@ export default function SettingsTab() {
     }));
   };
 
-  // Asettaa tilapäisen pakkokäynnin (Sauna/Vieraat) lokaaliin tilaan
+  const handleAwayChange = (key, val) => {
+    setLocalData((prev) => ({
+      ...prev,
+      awayConfig: {
+        ...prev.awayConfig,
+        [key]: val
+      }
+    }));
+  };
+
   const handleSetForceOnHours = (hours) => {
     const targetIso = hours
       ? new Date(Date.now() + hours * 60 * 60 * 1000).toISOString()
@@ -417,34 +552,34 @@ export default function SettingsTab() {
     setLocalData(JSON.parse(JSON.stringify(originalData)));
   };
 
-  // Tallentaa VAIN MUUTTUNEET arvot tietokantaan
   const handleSave = async () => {
     if (!hasChanges) return;
     setIsSaving(true);
     setError(null);
 
     try {
-      // 1. Validoi ja rakenna ilmanvaihdon config-payload, jos se muuttui
       const ventConfigChanged =
         JSON.stringify(localData.ventilationConfig) !== JSON.stringify(originalData.ventilationConfig);
+      const awayConfigChanged =
+        JSON.stringify(localData.awayConfig) !== JSON.stringify(originalData.awayConfig);
 
-      let ventPayload = null;
-      if (ventConfigChanged) {
-        ventPayload = buildVentilationPayload(localData.ventilationConfig);
-      }
+      const ventPayload = ventConfigChanged ? buildVentilationPayload(localData.ventilationConfig) : null;
+      const awayPayload = awayConfigChanged ? buildAwayPayload(localData.awayConfig) : null;
 
-      // 2. Tallenna muuttuneet Switchboard-rivit (is_active ja/tai ventilation config samassa päivityksessä)
+      // 1. Tallenna muuttuneet Switchboard-rivit (is_active ja/tai config samassa päivityksessä)
       for (const localSw of localData.switchboard) {
         const origSw = originalData.switchboard.find(
           (sw) => sw.automation_key === localSw.automation_key
         );
         const isActiveChanged = origSw ? localSw.is_active !== origSw.is_active : true;
         const isVentRow = localSw.automation_key === VENTILATION_KEY;
+        const isAwayRow = localSw.automation_key === AWAY_KEY;
 
-        if (isActiveChanged || (isVentRow && ventConfigChanged)) {
+        if (isActiveChanged || (isVentRow && ventConfigChanged) || (isAwayRow && awayConfigChanged)) {
           const swUpdatePayload = { updated_at: new Date().toISOString() };
           if (isActiveChanged) swUpdatePayload.is_active = localSw.is_active;
           if (isVentRow && ventConfigChanged) swUpdatePayload.config = ventPayload;
+          if (isAwayRow && awayConfigChanged) swUpdatePayload.config = awayPayload;
 
           const { error: swErr } = await macbase
             .schema('homeassistant')
@@ -456,7 +591,7 @@ export default function SettingsTab() {
         }
       }
 
-      // 3. Tallenna muuttuneet Budget-asetukset
+      // 2. Tallenna muuttuneet Budget-asetukset
       const originalBudgetObj = JSON.stringify({
         root: originalData.budgetRoot,
         kpi: originalData.budgetKpi,
@@ -494,12 +629,17 @@ export default function SettingsTab() {
         }
       }
 
-      // Normalisoidaan tallennettu tila vastaamaan täsmälleen kantaan mennyttä muotoa
       const savedSnapshot = JSON.parse(JSON.stringify(localData));
       if (ventPayload) {
         savedSnapshot.ventilationConfig = toVentilationFormState(ventPayload);
         savedSnapshot.switchboard = savedSnapshot.switchboard.map((sw) =>
           sw.automation_key === VENTILATION_KEY ? { ...sw, config: ventPayload } : sw
+        );
+      }
+      if (awayPayload) {
+        savedSnapshot.awayConfig = toAwayFormState(awayPayload);
+        savedSnapshot.switchboard = savedSnapshot.switchboard.map((sw) =>
+          sw.automation_key === AWAY_KEY ? { ...sw, config: awayPayload } : sw
         );
       }
 
@@ -521,7 +661,6 @@ export default function SettingsTab() {
     );
   }
 
-  // Yhteinen renderöijä budjetin JSON-objektien arvoille
   const renderInputGrid = (sectionName, dataObj, originalObj) => {
     if (!dataObj || Object.keys(dataObj).length === 0) {
       return (
@@ -535,7 +674,6 @@ export default function SettingsTab() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 'var(--spacing-grid)' }}>
         {Object.entries(dataObj).map(([key, value]) => {
           if (value !== null && typeof value === 'object') return null;
-
           const isModified = originalObj && value !== originalObj[key];
 
           return (
@@ -564,12 +702,18 @@ export default function SettingsTab() {
   };
 
   const ventSwitch = localData.switchboard.find((sw) => sw.automation_key === VENTILATION_KEY);
+  const awaySwitch = localData.switchboard.find((sw) => sw.automation_key === AWAY_KEY);
   const ventLocal = localData.ventilationConfig;
   const ventOrig = originalData.ventilationConfig;
+  const awayLocal = localData.awayConfig;
+  const awayOrig = originalData.awayConfig;
+
   const forceOnIso = ventLocal.force_on_until;
   const forceOnActive = forceOnIso ? new Date(forceOnIso) > new Date() : false;
   const forceOnModified = forceOnIso !== ventOrig.force_on_until;
   const weekendModified = ventLocal.weekend_always_home !== ventOrig.weekend_always_home;
+  const awayFromModified = awayLocal.active_from !== awayOrig.active_from;
+  const awayUntilModified = awayLocal.active_until !== awayOrig.active_until;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-layout)' }}>
@@ -642,7 +786,121 @@ export default function SettingsTab() {
         </div>
       </Accordion>
 
-      {/* B. Ilmanvaihdon asetukset */}
+      {/* B. Poissaolotila (Away Mode) */}
+      <Accordion title="Poissaolotila (Away Mode)" iconName="Plane">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <div
+            className="flex-row-gap"
+            style={{
+              padding: '12px 16px',
+              borderRadius: '6px',
+              backgroundColor: 'var(--color-bg-clean)',
+              borderLeft: awaySwitch?.is_active ? '3px solid var(--color-hermes)' : '1px solid var(--color-lancia)',
+              fontSize: '0.85rem',
+              color: 'var(--color-text-main)'
+            }}
+          >
+            <Clock size={16} />
+            <span>{getAwayStatusSummary(Boolean(awaySwitch?.is_active), awayLocal)}</span>
+          </div>
+
+          {/* Alku- ja paluuaika */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 'var(--spacing-grid)' }}>
+            <div
+              className="ui-panel"
+              style={{
+                padding: '16px',
+                borderLeft: awayFromModified ? '3px solid var(--color-hermes)' : '1px solid var(--color-lancia)'
+              }}
+            >
+              <div className="flex-between" style={{ marginBottom: '8px' }}>
+                <label style={{ fontSize: '0.75rem', color: 'var(--color-text-technical)', textTransform: 'uppercase', fontWeight: 600 }}>
+                  Aloitusaika (valinnainen)
+                </label>
+                {awayLocal.active_from && (
+                  <Button variant="secondary" icon={X} onClick={() => handleAwayChange('active_from', '')}>
+                    Tyhjennä
+                  </Button>
+                )}
+              </div>
+              <Input
+                type="datetime-local"
+                value={awayLocal.active_from}
+                onChange={(e) => handleAwayChange('active_from', e.target.value)}
+              />
+              <div className="text-muted" style={{ fontSize: '0.75rem', marginTop: '8px', lineHeight: 1.35 }}>
+                Jätä tyhjäksi, jos poissaolo alkaa heti kytkimen kääntämisestä.
+              </div>
+            </div>
+
+            <div
+              className="ui-panel"
+              style={{
+                padding: '16px',
+                borderLeft: awayUntilModified ? '3px solid var(--color-hermes)' : '1px solid var(--color-lancia)'
+              }}
+            >
+              <div className="flex-between" style={{ marginBottom: '8px' }}>
+                <label style={{ fontSize: '0.75rem', color: 'var(--color-text-technical)', textTransform: 'uppercase', fontWeight: 600 }}>
+                  Suunniteltu paluu
+                </label>
+                {awayLocal.active_until && (
+                  <Button variant="secondary" icon={X} onClick={() => handleAwayChange('active_until', '')}>
+                    Tyhjennä
+                  </Button>
+                )}
+              </div>
+              <Input
+                type="datetime-local"
+                value={awayLocal.active_until}
+                onChange={(e) => handleAwayChange('active_until', e.target.value)}
+              />
+              <div className="text-muted" style={{ fontSize: '0.75rem', marginTop: '8px', lineHeight: 1.35 }}>
+                Poissaolo päättyy automaattisesti tähän aikaan. Esivalmistelu käynnistyy ennen paluuta.
+              </div>
+            </div>
+          </div>
+
+          {/* Poissaolon numeroparametrit */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 'var(--spacing-grid)' }}>
+            {AWAY_NUMERIC_FIELDS.map((field) => {
+              const isModified = awayLocal[field.key] !== awayOrig[field.key];
+              return (
+                <div
+                  key={field.key}
+                  className="ui-panel"
+                  style={{
+                    padding: '16px',
+                    borderLeft: isModified ? '3px solid var(--color-hermes)' : '1px solid var(--color-lancia)'
+                  }}
+                >
+                  <div className="flex-between" style={{ marginBottom: '6px' }}>
+                    <label style={{ fontSize: '0.75rem', color: 'var(--color-text-technical)', textTransform: 'uppercase', fontWeight: 600 }}>
+                      {field.label}
+                    </label>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', fontWeight: 600 }}>
+                      {field.unit}
+                    </span>
+                  </div>
+                  <Input
+                    type="number"
+                    step={field.step}
+                    min={field.min}
+                    max={field.max}
+                    value={awayLocal[field.key]}
+                    onChange={(e) => handleAwayChange(field.key, e.target.value)}
+                  />
+                  <div className="text-muted" style={{ fontSize: '0.75rem', marginTop: '8px', lineHeight: 1.35 }}>
+                    {field.description}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </Accordion>
+
+      {/* C. Ilmanvaihdon asetukset */}
       <Accordion title="Ilmanvaihdon asetukset" iconName="Fan">
         <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
           {ventSwitch && !ventSwitch.is_active && (
@@ -826,12 +1084,12 @@ export default function SettingsTab() {
         </div>
       </Accordion>
 
-      {/* C. Talous ja Hinnat */}
+      {/* D. Talous ja Hinnat */}
       <Accordion title="Talouden perusasetukset" iconName="Wallet">
         {renderInputGrid('budgetRoot', localData.budgetRoot, originalData.budgetRoot)}
       </Accordion>
 
-      {/* D. Tekoäly ja Simulaattori */}
+      {/* E. Tekoäly ja Simulaattori */}
       <Accordion title="Tekoälyn parametrit (KPI & Simulaattori)" iconName="Settings">
         <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
           <div>
