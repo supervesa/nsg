@@ -59,13 +59,20 @@ const DEFAULT_AWAY_CONFIG = {
   ventilation_hours_per_day: 6,
   ventilation_max_off_hours: 12,
   ilp_hours_per_day: 6,
-  heating_target_temp: 17.0
+  heating_target_temp: 17.0,
+  source: 'manual',
+  calendar_uid: null,
+  dismissed_calendar_uid: null
 };
 
 const DEFAULT_GUEST_CONFIG = {
+  active_from: null,
   active_until: null,
   default_duration_hours: 6,
   guest_profile: 'standard',
+  source: 'manual',
+  calendar_uid: null,
+  dismissed_calendar_uid: null,
   target_temp: 20.5,
   sniffer_low_temp: 20.0,
   sniffer_high_temp: 21.5,
@@ -584,7 +591,10 @@ const toAwayFormState = (rawConfig) => {
     ventilation_hours_per_day: numStr(parsed.ventilation_hours_per_day, DEFAULT_AWAY_CONFIG.ventilation_hours_per_day),
     ventilation_max_off_hours: numStr(parsed.ventilation_max_off_hours, DEFAULT_AWAY_CONFIG.ventilation_max_off_hours),
     ilp_hours_per_day: numStr(parsed.ilp_hours_per_day, DEFAULT_AWAY_CONFIG.ilp_hours_per_day),
-    heating_target_temp: numStr(parsed.heating_target_temp, DEFAULT_AWAY_CONFIG.heating_target_temp)
+    heating_target_temp: numStr(parsed.heating_target_temp, DEFAULT_AWAY_CONFIG.heating_target_temp),
+    source: parsed.source || DEFAULT_AWAY_CONFIG.source,
+    calendar_uid: parsed.calendar_uid || null,
+    dismissed_calendar_uid: parsed.dismissed_calendar_uid || null
   };
 };
 
@@ -595,9 +605,13 @@ const toGuestFormState = (rawConfig) => {
   const rawProfile = String(parsed.guest_profile || DEFAULT_GUEST_CONFIG.guest_profile).toLowerCase();
 
   return {
+    active_from: isoToLocalInputValue(parsed.active_from),
     active_until: isoToLocalInputValue(parsed.active_until),
     default_duration_hours: numStr(parsed.default_duration_hours, DEFAULT_GUEST_CONFIG.default_duration_hours),
     guest_profile: rawProfile === 'fest' ? 'fest' : 'standard',
+    source: parsed.source || DEFAULT_GUEST_CONFIG.source,
+    calendar_uid: parsed.calendar_uid || null,
+    dismissed_calendar_uid: parsed.dismissed_calendar_uid || null,
     target_temp: numStr(parsed.target_temp, DEFAULT_GUEST_CONFIG.target_temp),
     sniffer_low_temp: numStr(parsed.sniffer_low_temp, DEFAULT_GUEST_CONFIG.sniffer_low_temp),
     sniffer_high_temp: numStr(parsed.sniffer_high_temp, DEFAULT_GUEST_CONFIG.sniffer_high_temp),
@@ -667,12 +681,20 @@ const buildAwayPayload = (formState) => {
     ventilation_hours_per_day: parseValidatedNumber(formState.ventilation_hours_per_day, 'Ilmanvaihdon käyntikiintiö', { isInt: true, min: 0, max: 24 }),
     ventilation_max_off_hours: parseValidatedNumber(formState.ventilation_max_off_hours, 'Ilmanvaihdon maksimitauko', { isInt: true, min: 1, max: 24 }),
     ilp_hours_per_day: parseValidatedNumber(formState.ilp_hours_per_day, 'ILP:n lämmityskiintiö', { isInt: true, min: 0, max: 24 }),
-    heating_target_temp: parseValidatedNumber(formState.heating_target_temp, 'Lämmityksen poissaololämpötila', { min: 10, max: 25 })
+    heating_target_temp: parseValidatedNumber(formState.heating_target_temp, 'Lämmityksen poissaololämpötila', { min: 10, max: 25 }),
+    source: formState.source || 'manual',
+    calendar_uid: formState.calendar_uid || null,
+    dismissed_calendar_uid: formState.dismissed_calendar_uid || null
   };
 };
 
 const buildGuestPayload = (formState) => {
+  const activeFromIso = localInputValueToIso(formState.active_from, 'Vierastilan aloitusaika');
   const activeUntilIso = localInputValueToIso(formState.active_until, 'Vierastilan päättymisaika');
+
+  if (activeFromIso && activeUntilIso && new Date(activeUntilIso) <= new Date(activeFromIso)) {
+    throw new Error('Vierastilan päättymisajan on oltava aloitusajan jälkeen.');
+  }
 
   const targetTemp = parseValidatedNumber(formState.target_temp, 'Vaihe 1: Tavoitelämpötila (heat)', { min: 16, max: 24 });
   const snifferLow = parseValidatedNumber(formState.sniffer_low_temp, 'Kylmäpaikkauksen alaraja', { min: 15, max: 23 });
@@ -715,9 +737,13 @@ const buildGuestPayload = (formState) => {
   }
 
   return {
+    active_from: activeFromIso,
     active_until: activeUntilIso,
     default_duration_hours: parseValidatedNumber(formState.default_duration_hours, 'Oletuskesto', { isInt: true, min: 1, max: 24 }),
     guest_profile: formState.guest_profile === 'fest' ? 'fest' : 'standard',
+    source: formState.source || 'manual',
+    calendar_uid: formState.calendar_uid || null,
+    dismissed_calendar_uid: formState.dismissed_calendar_uid || null,
     target_temp: targetTemp,
     sniffer_low_temp: snifferLow,
     sniffer_high_temp: snifferHigh,
@@ -751,9 +777,10 @@ const buildGuestPayload = (formState) => {
 // Laskee selkokielisen tilayhteenvedon poissaolokortille
 const getAwayStatusSummary = (isActive, awayForm) => {
   if (!isActive) {
-    return 'Pois päältä. Laita "Away Mode" päälle yllä olevasta Automaatiot-listasta tai ajasta päivämäärät valmiiksi.';
+    return 'Pois päältä. Laita "Away Mode" päälle yllä olevasta Automaatiot-listasta, ajasta päivämäärät valmiiksi tai lisää [poissa]-merkintä Apple Kalenteriin.';
   }
 
+  const srcPrefix = awayForm.source === 'apple_calendar' ? 'Apple Kalenteri: ' : '';
   const now = new Date();
   const fromDate = awayForm.active_from ? new Date(awayForm.active_from) : null;
   const untilDate = awayForm.active_until ? new Date(awayForm.active_until) : null;
@@ -763,18 +790,18 @@ const getAwayStatusSummary = (isActive, awayForm) => {
     : null;
 
   if (fromDate && !Number.isNaN(fromDate.getTime()) && now < fromDate) {
-    return `Ajastettu alkamaan ${formatHelsinkiTimestamp(fromDate)}${untilDate ? `, paluu ${formatHelsinkiTimestamp(untilDate)}` : ''}.`;
+    return `${srcPrefix}Ajastettu alkamaan ${formatHelsinkiTimestamp(fromDate)}${untilDate ? `, paluu ${formatHelsinkiTimestamp(untilDate)}` : ''}.`;
   }
   if (untilDate && !Number.isNaN(untilDate.getTime()) && now >= untilDate) {
-    return `Suunniteltu paluu (${formatHelsinkiTimestamp(untilDate)}) on ohitettu — järjestelmä toimii normaalitilassa.`;
+    return `${srcPrefix}Suunniteltu paluu (${formatHelsinkiTimestamp(untilDate)}) on ohitettu — järjestelmä toimii normaalitilassa.`;
   }
   if (prepStart && now >= prepStart && untilDate) {
-    return `Paluun esivalmistelu käynnissä (alkoi ${formatHelsinkiTimestamp(prepStart)}, paluu ${formatHelsinkiTimestamp(untilDate)}).`;
+    return `${srcPrefix}Paluun esivalmistelu käynnissä (alkoi ${formatHelsinkiTimestamp(prepStart)}, paluu ${formatHelsinkiTimestamp(untilDate)}).`;
   }
   if (untilDate && prepStart) {
-    return `Poissaolo aktiivinen. Paluun esivalmistelu käynnistyy ${formatHelsinkiTimestamp(prepStart)} (paluu ${formatHelsinkiTimestamp(untilDate)}).`;
+    return `${srcPrefix}Poissaolo aktiivinen. Paluun esivalmistelu käynnistyy ${formatHelsinkiTimestamp(prepStart)} (paluu ${formatHelsinkiTimestamp(untilDate)}).`;
   }
-  return 'Poissaolo aktiivinen toistaiseksi (suunniteltua paluuaikaa ei asetettu).';
+  return `${srcPrefix}Poissaolo aktiivinen toistaiseksi (suunniteltua paluuaikaa ei asetettu).`;
 };
 
 // Laskee selkokielisen tilayhteenvedon vierastilakortille
@@ -786,20 +813,26 @@ const getGuestStatusSummary = (isActive, guestForm) => {
   const effCool = isFest ? guestForm.fest_cool_trigger_temp : guestForm.cool_trigger_temp;
 
   if (!isActive) {
-    return `Pois päältä. Valitse profiili (${profileLabel}) sekä kesto (4 h / 6 h / 8 h) ja paina Tallenna käynnistääksesi tilan heti.`;
+    return `Pois päältä. Valitse profiili (${profileLabel}) sekä kesto (4 h / 6 h / 8 h) ja paina Tallenna, tai lisää [vieras]-merkintä Apple Kalenteriin.`;
   }
 
+  const srcPrefix = guestForm.source === 'apple_calendar' ? 'Apple Kalenteri: ' : '';
   const now = new Date();
+  const fromDate = guestForm.active_from ? new Date(guestForm.active_from) : null;
   const untilDate = guestForm.active_until ? new Date(guestForm.active_until) : null;
+
+  if (fromDate && !Number.isNaN(fromDate.getTime()) && now < fromDate) {
+    return `${srcPrefix}${profileLabel} ajastettu alkamaan ${formatHelsinkiTimestamp(fromDate)}${untilDate ? ` (päättyy ${formatHelsinkiTimestamp(untilDate)})` : ''}. Talo jatkaa normaalitilassa siihen asti.`;
+  }
 
   if (untilDate && !Number.isNaN(untilDate.getTime())) {
     if (now >= untilDate) {
-      return `Ajastin (${formatHelsinkiTimestamp(untilDate)}) on täyttynyt — talo palautuu normaalitilaan ja ILP:n puhallus palaa tilaan "${guestForm.ilp_restore_fan_mode}".`;
+      return `${srcPrefix}Ajastin (${formatHelsinkiTimestamp(untilDate)}) on täyttynyt — talo palautuu normaalitilaan ja ILP:n puhallus palaa tilaan "${guestForm.ilp_restore_fan_mode}".`;
     }
-    return `${profileLabel} aktiivinen klo ${formatHelsinkiTimestamp(untilDate)} asti (heat ${effTarget} °C → fan_only ${effFanOnly} °C → cool ${effCool} °C, puhallus "${guestForm.ilp_fan_mode}").`;
+    return `${srcPrefix}${profileLabel} aktiivinen klo ${formatHelsinkiTimestamp(untilDate)} asti (heat ${effTarget} °C → fan_only ${effFanOnly} °C → cool ${effCool} °C, puhallus "${guestForm.ilp_fan_mode}").`;
   }
 
-  return `${profileLabel} aktiivinen toistaiseksi (heat ${effTarget} °C → fan_only ${effFanOnly} °C → cool ${effCool} °C). Lopeta tarvittaessa painikkeesta.`;
+  return `${srcPrefix}${profileLabel} aktiivinen toistaiseksi (heat ${effTarget} °C → fan_only ${effFanOnly} °C → cool ${effCool} °C). Lopeta tarvittaessa painikkeesta.`;
 };
 
 export default function SettingsTab() {
@@ -950,6 +983,7 @@ export default function SettingsTab() {
       ),
       guestConfig: {
         ...prev.guestConfig,
+        active_from: '',
         active_until: isoToLocalInputValue(targetIso),
         default_duration_hours: String(hours)
       }
@@ -964,6 +998,7 @@ export default function SettingsTab() {
       ),
       guestConfig: {
         ...prev.guestConfig,
+        active_from: '',
         active_until: '',
         guest_profile: 'standard'
       }
@@ -997,15 +1032,42 @@ export default function SettingsTab() {
       const guestConfigChanged =
         JSON.stringify(localData.guestConfig) !== JSON.stringify(originalData.guestConfig);
 
+      const origAwaySw = originalData.switchboard.find((sw) => sw.automation_key === AWAY_KEY);
+      const localAwaySw = localData.switchboard.find((sw) => sw.automation_key === AWAY_KEY);
+      const awayActiveChanged =
+        Boolean(localAwaySw?.is_active) !== Boolean(origAwaySw?.is_active);
+      const awayChanged = awayActiveChanged || awayConfigChanged;
+
       const origGuestSw = originalData.switchboard.find((sw) => sw.automation_key === GUEST_KEY);
       const localGuestSw = localData.switchboard.find((sw) => sw.automation_key === GUEST_KEY);
       const guestActiveChanged =
         Boolean(localGuestSw?.is_active) !== Boolean(origGuestSw?.is_active);
       const guestChanged = guestActiveChanged || guestConfigChanged;
 
+      // Käyttäjän käsin tekemä muutos voittaa aina kalenterin; kalenteritapahtuman käsin sammutus
+      // tallentaa dismissed_calendar_uid-suojan, jottei seuraava synkronointi käännä sitä takaisin päälle.
+      const applyManualOwnership = (payload, origSw, localSw, origCfg) => {
+        const next = { ...payload, source: 'manual', calendar_uid: null };
+        if (
+          origSw?.is_active &&
+          !localSw?.is_active &&
+          origCfg.source === 'apple_calendar' &&
+          origCfg.calendar_uid
+        ) {
+          next.dismissed_calendar_uid = origCfg.calendar_uid;
+          next.active_from = null;
+          next.active_until = null;
+        }
+        return next;
+      };
+
       const ventPayload = ventConfigChanged ? buildVentilationPayload(localData.ventilationConfig) : null;
-      const awayPayload = awayConfigChanged ? buildAwayPayload(localData.awayConfig) : null;
-      const guestPayload = guestConfigChanged ? buildGuestPayload(localData.guestConfig) : null;
+      const awayPayload = awayChanged
+        ? applyManualOwnership(buildAwayPayload(localData.awayConfig), origAwaySw, localAwaySw, originalData.awayConfig)
+        : null;
+      const guestPayload = guestChanged
+        ? applyManualOwnership(buildGuestPayload(localData.guestConfig), origGuestSw, localGuestSw, originalData.guestConfig)
+        : null;
 
       // 1. Tallenna muuttuneet Switchboard-rivit (is_active ja/tai config samassa päivityksessä)
       for (const localSw of localData.switchboard) {
@@ -1020,14 +1082,14 @@ export default function SettingsTab() {
         if (
           isActiveChanged ||
           (isVentRow && ventConfigChanged) ||
-          (isAwayRow && awayConfigChanged) ||
-          (isGuestRow && guestConfigChanged)
+          (isAwayRow && awayChanged) ||
+          (isGuestRow && guestChanged)
         ) {
           const swUpdatePayload = { updated_at: new Date().toISOString() };
           if (isActiveChanged) swUpdatePayload.is_active = localSw.is_active;
           if (isVentRow && ventConfigChanged) swUpdatePayload.config = ventPayload;
-          if (isAwayRow && awayConfigChanged) swUpdatePayload.config = awayPayload;
-          if (isGuestRow && guestConfigChanged) swUpdatePayload.config = guestPayload;
+          if (isAwayRow && awayChanged) swUpdatePayload.config = awayPayload;
+          if (isGuestRow && guestChanged) swUpdatePayload.config = guestPayload;
 
           const { error: swErr } = await macbase
             .schema('homeassistant')
@@ -1202,8 +1264,11 @@ export default function SettingsTab() {
   const awayUntilModified = awayLocal.active_until !== awayOrig.active_until;
 
   const guestProfileModified = guestLocal.guest_profile !== guestOrig.guest_profile;
+  const guestFromModified = guestLocal.active_from !== guestOrig.active_from;
+  const guestUntilModified = guestLocal.active_until !== guestOrig.active_until;
   const guestTimerModified =
-    guestLocal.active_until !== guestOrig.active_until ||
+    guestFromModified ||
+    guestUntilModified ||
     Boolean(guestSwitch?.is_active) !== Boolean(origGuestSwitch?.is_active) ||
     guestProfileModified;
   const guestFanModified = guestLocal.ilp_fan_mode !== guestOrig.ilp_fan_mode;
@@ -1302,7 +1367,7 @@ export default function SettingsTab() {
             <span>{getGuestStatusSummary(Boolean(guestSwitch?.is_active), guestLocal)}</span>
           </div>
 
-          {/* Profiilivalinta + Keston pikavalinnat (4h / 6h / 8h) + Päättymisaika */}
+          {/* Profiilivalinta + Keston pikavalinnat (4h / 6h / 8h) + Alku- ja päättymisaika */}
           <div
             className="ui-panel"
             style={{
@@ -1344,7 +1409,7 @@ export default function SettingsTab() {
             <div className="flex-between" style={{ flexWrap: 'wrap', gap: '12px', marginBottom: '16px' }}>
               <div>
                 <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--color-text-main)', marginBottom: '4px' }}>
-                  Käynnistä ajastimella
+                  Käynnistä heti ajastimella
                 </div>
                 <div className="text-muted" style={{ fontSize: '0.8rem' }}>
                   Valitse kesto ja vahvista yläreunan <strong>Tallenna</strong>-painikkeella. Puhallus ja profiili palautuvat automaattisesti ajan päättyessä.
@@ -1355,14 +1420,14 @@ export default function SettingsTab() {
                 {GUEST_DURATION_OPTIONS.map((hours) => (
                   <Button
                     key={hours}
-                    variant={guestSwitch?.is_active && String(guestLocal.default_duration_hours) === String(hours) ? 'primary' : 'secondary'}
+                    variant={guestSwitch?.is_active && !guestLocal.active_from && String(guestLocal.default_duration_hours) === String(hours) ? 'primary' : 'secondary'}
                     icon={Clock}
                     onClick={() => handleSetGuestDuration(hours)}
                   >
                     {hours} h
                   </Button>
                 ))}
-                {(guestSwitch?.is_active || guestLocal.active_until) && (
+                {(guestSwitch?.is_active || guestLocal.active_from || guestLocal.active_until) && (
                   <Button variant="secondary" icon={Power} onClick={handleStopGuestMode}>
                     Lopeta nyt
                   </Button>
@@ -1370,24 +1435,48 @@ export default function SettingsTab() {
               </div>
             </div>
 
-            <div style={{ borderTop: '1px solid var(--color-bg-clean)', paddingTop: '12px', maxWidth: '380px' }}>
-              <div className="flex-between" style={{ marginBottom: '8px' }}>
-                <label style={{ fontSize: '0.75rem', color: 'var(--color-text-technical)', textTransform: 'uppercase', fontWeight: 600 }}>
-                  Päättymisaika (valinnainen)
-                </label>
-                {guestLocal.active_until && (
-                  <Button variant="secondary" icon={X} onClick={() => handleGuestChange('active_until', '')}>
-                    Tyhjennä
-                  </Button>
-                )}
+            {/* Aloitus- ja päättymisaika (myös Apple Kalenterin SCHEDULED-ajastuksille) */}
+            <div style={{ borderTop: '1px solid var(--color-bg-clean)', paddingTop: '12px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 'var(--spacing-grid)' }}>
+              <div>
+                <div className="flex-between" style={{ marginBottom: '8px' }}>
+                  <label style={{ fontSize: '0.75rem', color: 'var(--color-text-technical)', textTransform: 'uppercase', fontWeight: 600 }}>
+                    Aloitusaika (valinnainen)
+                  </label>
+                  {guestLocal.active_from && (
+                    <Button variant="secondary" icon={X} onClick={() => handleGuestChange('active_from', '')}>
+                      Tyhjennä
+                    </Button>
+                  )}
+                </div>
+                <Input
+                  type="datetime-local"
+                  value={guestLocal.active_from}
+                  onChange={(e) => handleGuestChange('active_from', e.target.value)}
+                />
+                <div className="text-muted" style={{ fontSize: '0.75rem', marginTop: '8px', lineHeight: 1.35 }}>
+                  Jätä tyhjäksi, jos vierastila alkaa heti. Apple Kalenteri täyttää tämän 60 min ennakolla.
+                </div>
               </div>
-              <Input
-                type="datetime-local"
-                value={guestLocal.active_until}
-                onChange={(e) => handleGuestChange('active_until', e.target.value)}
-              />
-              <div className="text-muted" style={{ fontSize: '0.75rem', marginTop: '8px', lineHeight: 1.35 }}>
-                Jos kenttä jätetään tyhjäksi, vierastila pysyy päällä toistaiseksi.
+
+              <div>
+                <div className="flex-between" style={{ marginBottom: '8px' }}>
+                  <label style={{ fontSize: '0.75rem', color: 'var(--color-text-technical)', textTransform: 'uppercase', fontWeight: 600 }}>
+                    Päättymisaika (valinnainen)
+                  </label>
+                  {guestLocal.active_until && (
+                    <Button variant="secondary" icon={X} onClick={() => handleGuestChange('active_until', '')}>
+                      Tyhjennä
+                    </Button>
+                  )}
+                </div>
+                <Input
+                  type="datetime-local"
+                  value={guestLocal.active_until}
+                  onChange={(e) => handleGuestChange('active_until', e.target.value)}
+                />
+                <div className="text-muted" style={{ fontSize: '0.75rem', marginTop: '8px', lineHeight: 1.35 }}>
+                  Jos kenttä jätetään tyhjäksi, vierastila pysyy päällä toistaiseksi.
+                </div>
               </div>
             </div>
           </div>
