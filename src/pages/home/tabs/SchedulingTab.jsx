@@ -11,6 +11,74 @@ export const meta = {
   order: 5 
 };
 
+const MONTH_NAMES_FI = [
+  'tammikuu', 'helmikuu', 'maaliskuu', 'huhtikuu', 'toukokuu', 'kesäkuu',
+  'heinäkuu', 'elokuu', 'syyskuu', 'lokakuu', 'marraskuu', 'joulukuu'
+];
+
+const safeParseObject = (val) => {
+  if (!val) return {};
+  if (typeof val === 'object') return val;
+  try {
+    const parsed = JSON.parse(val);
+    return typeof parsed === 'string' ? JSON.parse(parsed) : (parsed || {});
+  } catch {
+    return {};
+  }
+};
+
+const getDecisionBadgeMeta = (code) => {
+  switch (code) {
+    case 'VIP_SOLAR':
+      return { label: 'VIP Aurinko', color: 'var(--color-saab)' };
+    case 'VIP_GRID':
+      return { label: 'VIP-lataus', color: 'var(--color-electric)' };
+    case 'FAILSAFE_CHARGE':
+      return { label: 'Failsafe-lataus', color: 'var(--color-saab)' };
+    case 'FREERIDE':
+      return { label: 'Vapaamatkustus', color: 'var(--color-saab)' };
+    case 'MAINT_ILP_SOLAR':
+      return { label: 'ILP Aurinko', color: 'var(--color-saab)' };
+    case 'MAINT_ILP':
+      return { label: 'ILP-ylläpito', color: 'var(--color-electric)' };
+    case 'MAINT_DH_PRICE_CAP':
+      return { label: 'KL (Hintakatto)', color: 'var(--color-rosso)' };
+    case 'MAINT_DH_KWH_LIMIT':
+      return { label: 'KL (kWh-raja)', color: 'var(--color-rosso)' };
+    case 'MAINT_DH_CHEAPER':
+      return { label: 'KL (Edullisempi)', color: 'var(--color-text-technical)' };
+    default:
+      return null;
+  }
+};
+
+const extractCleanHourlyReasoning = (rawReasoning) => {
+  if (!rawReasoning) return '';
+  const text = String(rawReasoning);
+  if (text.startsWith('[PÄIVÄN KATSAUS]')) {
+    const marker = '[TUNTIPÄÄTÖS]';
+    const idx = text.indexOf(marker);
+    if (idx !== -1) {
+      return text.slice(idx + marker.length).trim();
+    }
+    const nlIdx = text.indexOf('\n');
+    if (nlIdx !== -1) {
+      return text.slice(nlIdx + 1).trim();
+    }
+  }
+  return text;
+};
+
+const extractFallbackOverviewText = (rawReasoning) => {
+  if (!rawReasoning) return null;
+  const text = String(rawReasoning);
+  if (!text.startsWith('[PÄIVÄN KATSAUS]')) return null;
+  const marker = '[TUNTIPÄÄTÖS]';
+  const idx = text.indexOf(marker);
+  const overviewPart = idx !== -1 ? text.slice(0, idx) : text.split('\n')[0];
+  return overviewPart.replace(/^\[PÄIVÄN KATSAUS\]\s*/, '').trim();
+};
+
 export default function SchedulingTab() {
   const [schedules, setSchedules] = useState([]);
   const [climateProfiles, setClimateProfiles] = useState([]);
@@ -37,12 +105,12 @@ export default function SchedulingTab() {
       try {
         const [climateRes, solarRes] = await Promise.all([
           macbase.schema('homeassistant').from('house_climate_profiles').select(`
-            profile_id, cooling_rate, required_offset, avg_valve_position,
+            profile_id, cooling_rate, required_offset, avg_valve_position, meta,
             room:house_rooms(room_name, thermostat_type),
             weather:house_weather_categories(category_name, temp_min, temp_max)
           `),
           macbase.schema('homeassistant').from('house_solar_profiles').select(`
-            solar_profile_id, month_id, max_solar_power_w, avg_solar_power_w,
+            solar_profile_id, month_id, max_solar_power_w, avg_solar_power_w, avg_hue_illuminance,
             cloud:house_cloud_categories(*)
           `)
         ]);
@@ -83,17 +151,24 @@ export default function SchedulingTab() {
 
         if (schedRes.error) throw schedRes.error;
 
+        const toHourBucket = (iso) => Math.floor(new Date(iso).getTime() / 3600000);
+
         const enrichedSchedules = (schedRes.data || []).map(sched => {
-          const schedTime = new Date(sched.target_hour).getTime();
-          const priceObj = (nordpoolRes.data || []).find(p => new Date(p.start_time).getTime() === schedTime);
-          const weatherObj = (weatherRes.data || []).find(w => new Date(w.target_time).getTime() === schedTime);
-          const parsedMeta = typeof sched.meta === 'string' ? JSON.parse(sched.meta) : (sched.meta || {});
+          const schedBucket = toHourBucket(sched.target_hour);
+          const priceObj = (nordpoolRes.data || []).find(p => toHourBucket(p.start_time) === schedBucket);
+          const weatherObj = (weatherRes.data || []).find(w => toHourBucket(w.target_time) === schedBucket);
+          const parsedMeta = safeParseObject(sched.meta);
+
+          const metaSpotPrice = parsedMeta.spot_price_snt !== undefined && parsedMeta.spot_price_snt !== null
+            ? parseFloat(parsedMeta.spot_price_snt)
+            : null;
 
           return {
             ...sched,
-            price: priceObj ? parseFloat(priceObj.price) : null,
+            price: priceObj ? parseFloat(priceObj.price) : metaSpotPrice,
             cloudCover: weatherObj ? parseFloat(weatherObj.cloud_cover) : null,
-            meta: parsedMeta
+            meta: parsedMeta,
+            cleanReasoning: extractCleanHourlyReasoning(sched.ai_reasoning)
           };
         });
 
@@ -147,16 +222,10 @@ export default function SchedulingTab() {
     setSelectedDate(newDate);
   };
 
-  const getPriceColor = (price) => {
-    if (price === null) return 'var(--color-text-muted)';
-    if (price > 10) return 'var(--color-rosso)';
-    if (price <= 3) return 'var(--color-saab)';
-    return 'var(--color-electric)';
-  };
-
-  const formatNumber = (num) => {
-    if (num === null || num === undefined) return '-';
-    return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+  const formatWatts = (num) => {
+    if (num === null || num === undefined || Number.isNaN(Number(num))) return '-';
+    const rounded = Math.round(Number(num));
+    return rounded.toString().replace(/\B(?=(\d{3})+(?!\d))/g, " ");
   };
 
   const formatEur = (cents) => {
@@ -174,7 +243,7 @@ export default function SchedulingTab() {
     const yearMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
     const firstDayOfMonth = new Date(d.getFullYear(), d.getMonth(), 1);
     const dayOfWeek = firstDayOfMonth.getDay() === 0 ? 6 : firstDayOfMonth.getDay() - 1; 
-    const weekOfMonth = Math.ceil((d.getDate() + dayOfWeek) / 7);
+    const weekOfMonth = Math.min(Math.ceil((d.getDate() + dayOfWeek) / 7), 4);
     return { yearMonth, weekOfMonth };
   };
 
@@ -198,17 +267,24 @@ export default function SchedulingTab() {
   let dailyRealizedKwh = 0;
   let dailyRealizedSnt = 0;
   let dailyBiasKwh = 0; 
+  let hasAnyRealized = false;
 
   schedules.forEach(s => {
-    dailyPlannedKwh += s.meta?.planned_kwh || 0;
-    dailyPlannedSnt += s.meta?.planned_cost_snt || 0;
-    dailyBiasKwh += s.meta?.ai_bias_correction_kwh || 0; 
+    dailyPlannedKwh += Number(s.meta?.planned_kwh || 0);
+    dailyPlannedSnt += Number(s.meta?.planned_cost_snt || 0);
+    dailyBiasKwh += Number(s.meta?.ai_bias_correction_kwh || 0); 
     
     if (s.meta?.realized_kwh !== undefined && s.meta?.realized_kwh !== null) {
-      dailyRealizedKwh += s.meta.realized_kwh;
-      dailyRealizedSnt += s.meta.realized_raw_cost_snt || 0;
+      hasAnyRealized = true;
+      dailyRealizedKwh += Number(s.meta.realized_kwh);
+      dailyRealizedSnt += Number(s.meta.realized_raw_cost_snt || 0);
     }
   });
+
+  const dailySummary = schedules.find(s => s.meta?.daily_summary)?.meta?.daily_summary || null;
+  const fallbackOverviewText = !dailySummary && schedules.length > 0
+    ? extractFallbackOverviewText(schedules[0].ai_reasoning)
+    : null;
 
   const groupedSchedules = [];
   let currentGroup = null;
@@ -221,6 +297,7 @@ export default function SchedulingTab() {
     const hasRealized = sched.meta?.realized_kwh !== undefined && sched.meta?.realized_kwh !== null;
     const isSnifferActive = sched.meta?.sniffer_active === true;
     const snifferAction = sched.meta?.sniffer_action;
+    const decisionCode = sched.meta?.decision_code || null;
 
     if (!currentGroup) {
       currentGroup = {
@@ -229,16 +306,17 @@ export default function SchedulingTab() {
         ilp_mode: sched.ilp_mode,
         ilp_target_temp: sched.ilp_target_temp,
         eve_thermo_target: sched.eve_thermo_target,
-        ai_reasoning: sched.ai_reasoning,
+        ai_reasoning: sched.cleanReasoning,
+        decision_code: decisionCode,
         isCurrentBlock: isCurrentHour,
         isPast: past,
         schedules: [sched],
-        planned_kwh: sched.meta?.planned_kwh || 0,
-        raw_planned_kwh: sched.meta?.raw_planned_kwh || 0, 
-        ai_bias_correction_kwh: sched.meta?.ai_bias_correction_kwh || 0, 
-        planned_cost_snt: sched.meta?.planned_cost_snt || 0,
-        realized_kwh: sched.meta?.realized_kwh || 0,
-        realized_raw_cost_snt: sched.meta?.realized_raw_cost_snt || 0,
+        planned_kwh: Number(sched.meta?.planned_kwh || 0),
+        raw_planned_kwh: Number(sched.meta?.raw_planned_kwh || 0), 
+        ai_bias_correction_kwh: Number(sched.meta?.ai_bias_correction_kwh || 0), 
+        planned_cost_snt: Number(sched.meta?.planned_cost_snt || 0),
+        realized_kwh: Number(sched.meta?.realized_kwh || 0),
+        realized_raw_cost_snt: Number(sched.meta?.realized_raw_cost_snt || 0),
         has_realized: hasRealized,
         has_sniffer: isSnifferActive,
         sniffer_action: snifferAction
@@ -248,20 +326,20 @@ export default function SchedulingTab() {
         currentGroup.ilp_mode === sched.ilp_mode &&
         currentGroup.ilp_target_temp === sched.ilp_target_temp &&
         currentGroup.eve_thermo_target === sched.eve_thermo_target &&
-        currentGroup.ai_reasoning === sched.ai_reasoning
+        currentGroup.ai_reasoning === sched.cleanReasoning
       ) {
         currentGroup.end_hour = sched.target_hour;
         currentGroup.schedules.push(sched);
         if (isCurrentHour) currentGroup.isCurrentBlock = true;
         if (!past) currentGroup.isPast = false;
         
-        currentGroup.planned_kwh += sched.meta?.planned_kwh || 0;
-        currentGroup.raw_planned_kwh += sched.meta?.raw_planned_kwh || 0; 
-        currentGroup.ai_bias_correction_kwh += sched.meta?.ai_bias_correction_kwh || 0; 
-        currentGroup.planned_cost_snt += sched.meta?.planned_cost_snt || 0;
+        currentGroup.planned_kwh += Number(sched.meta?.planned_kwh || 0);
+        currentGroup.raw_planned_kwh += Number(sched.meta?.raw_planned_kwh || 0); 
+        currentGroup.ai_bias_correction_kwh += Number(sched.meta?.ai_bias_correction_kwh || 0); 
+        currentGroup.planned_cost_snt += Number(sched.meta?.planned_cost_snt || 0);
         if (hasRealized) {
-          currentGroup.realized_kwh += sched.meta.realized_kwh;
-          currentGroup.realized_raw_cost_snt += sched.meta?.realized_raw_cost_snt || 0;
+          currentGroup.realized_kwh += Number(sched.meta.realized_kwh);
+          currentGroup.realized_raw_cost_snt += Number(sched.meta?.realized_raw_cost_snt || 0);
           currentGroup.has_realized = true;
         }
         if (isSnifferActive) {
@@ -276,16 +354,17 @@ export default function SchedulingTab() {
           ilp_mode: sched.ilp_mode,
           ilp_target_temp: sched.ilp_target_temp,
           eve_thermo_target: sched.eve_thermo_target,
-          ai_reasoning: sched.ai_reasoning,
+          ai_reasoning: sched.cleanReasoning,
+          decision_code: decisionCode,
           isCurrentBlock: isCurrentHour,
           isPast: past,
           schedules: [sched],
-          planned_kwh: sched.meta?.planned_kwh || 0,
-          raw_planned_kwh: sched.meta?.raw_planned_kwh || 0, 
-          ai_bias_correction_kwh: sched.meta?.ai_bias_correction_kwh || 0, 
-          planned_cost_snt: sched.meta?.planned_cost_snt || 0,
-          realized_kwh: sched.meta?.realized_kwh || 0,
-          realized_raw_cost_snt: sched.meta?.realized_raw_cost_snt || 0,
+          planned_kwh: Number(sched.meta?.planned_kwh || 0),
+          raw_planned_kwh: Number(sched.meta?.raw_planned_kwh || 0), 
+          ai_bias_correction_kwh: Number(sched.meta?.ai_bias_correction_kwh || 0), 
+          planned_cost_snt: Number(sched.meta?.planned_cost_snt || 0),
+          realized_kwh: Number(sched.meta?.realized_kwh || 0),
+          realized_raw_cost_snt: Number(sched.meta?.realized_raw_cost_snt || 0),
           has_realized: hasRealized,
           has_sniffer: isSnifferActive,
           sniffer_action: snifferAction
@@ -339,7 +418,7 @@ export default function SchedulingTab() {
 
     return (
       <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: color, fontWeight: 600, backgroundColor: 'var(--color-bg-clean)', padding: '4px 8px', borderRadius: '4px' }}>
-        <IconCmp size={14} /> ILP: {temp}°C <span style={{ fontWeight: 500, fontSize: '0.75rem', color: 'var(--color-text-technical)' }}>{modeText}</span>
+        <IconCmp size={14} /> {mode === 'fan_only' || mode === 'off' ? `ILP: ${modeText}` : `ILP: ${temp}°C`} <span style={{ fontWeight: 500, fontSize: '0.75rem', color: 'var(--color-text-technical)' }}>{mode === 'fan_only' || mode === 'off' ? '' : modeText}</span>
       </span>
     );
   };
@@ -353,12 +432,22 @@ export default function SchedulingTab() {
   const rooms = [...new Set(climateProfiles.map(p => p.room?.room_name))].filter(Boolean);
   const getProfile = (roomName, weatherCat) => climateProfiles.find(p => p.room?.room_name === roomName && p.weather?.category_name === weatherCat);
   const getCloudName = (cloudObj) => cloudObj?.cloud_name || cloudObj?.name || cloudObj?.category_name || 'Tuntematon';
-  
-  const activeSolarProfiles = [...solarProfiles].sort((a, b) => {
-    const powerDiff = (b.max_solar_power_w || 0) - (a.max_solar_power_w || 0);
-    if (powerDiff !== 0) return powerDiff;
-    return (a.cloud?.cloud_id || 0) - (b.cloud?.cloud_id || 0);
-  });
+
+  // Suodatetaan aurinkoprofiilit valitun päivän kuukaudelle (varalla viimeisin saatavilla oleva kuukausi)
+  const selectedMonthId = selectedDate.getMonth() + 1;
+  const availableSolarMonths = [...new Set(solarProfiles.map(sp => Number(sp.month_id)).filter(Boolean))].sort((a, b) => b - a);
+  const effectiveSolarMonthId = availableSolarMonths.includes(selectedMonthId)
+    ? selectedMonthId
+    : (availableSolarMonths[0] || selectedMonthId);
+  const effectiveSolarMonthName = MONTH_NAMES_FI[effectiveSolarMonthId - 1] || `${effectiveSolarMonthId}. kk`;
+
+  const activeSolarProfiles = solarProfiles
+    .filter(sp => Number(sp.month_id) === effectiveSolarMonthId)
+    .sort((a, b) => {
+      const cloudDiff = (a.cloud?.cloud_id || 0) - (b.cloud?.cloud_id || 0);
+      if (cloudDiff !== 0) return cloudDiff;
+      return (b.max_solar_power_w || 0) - (a.max_solar_power_w || 0);
+    });
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-layout)' }}>
@@ -376,7 +465,6 @@ export default function SchedulingTab() {
 
             {visibleWeeks.map((weekData, idx) => {
               const w = weekData.wallet;
-              const isPast = weekData.offset === -1;
               const isActive = weekData.offset === 0;
               
               const base = w ? parseFloat(w.base_budget_snt) : 0;
@@ -431,7 +519,7 @@ export default function SchedulingTab() {
                         {ledger.length !== 0 ? ledger.map((transaction) => {
                           const isBonus = transaction.transaction_type === 'SOLAR_BONUS' || parseFloat(transaction.amount_snt) > 0;
                           const amountEur = parseFloat(transaction.amount_snt) / 100;
-                          const meta = transaction.meta || {};
+                          const metaObj = safeParseObject(transaction.meta);
                           
                           return (
                             <div key={transaction.ledger_id} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px', backgroundColor: 'var(--color-bg-clean)', borderRadius: '4px', fontSize: '0.8rem' }}>
@@ -439,7 +527,7 @@ export default function SchedulingTab() {
                                 <span style={{ color: 'var(--color-text-muted)', fontSize: '0.7rem' }}>
                                   {new Date(transaction.created_at).toLocaleDateString('fi-FI')} {new Date(transaction.created_at).toLocaleTimeString('fi-FI', { hour: '2-digit', minute: '2-digit' })}
                                 </span>
-                                <span style={{ color: 'var(--color-text-main)' }}>{meta.selitys || transaction.transaction_type}</span>
+                                <span style={{ color: 'var(--color-text-main)' }}>{metaObj.selitys || transaction.transaction_type}</span>
                               </div>
                               <div style={{ fontWeight: 'bold', whiteSpace: 'nowrap', color: isBonus ? 'var(--color-saab)' : 'var(--color-rosso)' }}>
                                 {isBonus ? '+' : ''}{amountEur.toLocaleString('fi-FI', { style: 'currency', currency: 'EUR' })}
@@ -504,36 +592,111 @@ export default function SchedulingTab() {
         
         {/* PÄIVÄN KOKONAISYHTEENVETO LOKIKIRJAN ALUSSA */}
         {schedules.length > 0 && (
-          <div style={{ 
-            backgroundColor: 'var(--color-bg-main)', 
-            padding: '12px 16px', 
-            margin: '16px 16px 0 16px', 
-            borderRadius: '8px', 
-            border: '1px solid var(--color-border)', 
-            display: 'flex', 
-            justifyContent: 'space-between',
-            flexWrap: 'wrap', 
-            gap: '12px', 
-            fontSize: '0.85rem' 
-          }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-              <span style={{ color: 'var(--color-text-muted)', fontSize: '0.7rem', textTransform: 'uppercase', fontWeight: 600 }}>Päivän Arvio</span>
-              <span style={{ fontWeight: 600, color: 'var(--color-text-main)' }}>
-                {dailyPlannedKwh.toFixed(1)} kWh <span style={{ color: 'var(--color-text-technical)' }}>({formatEur(dailyPlannedSnt)})</span>
-              </span>
-              {dailyBiasKwh !== 0 && (
-                <span style={{ fontSize: '0.7rem', color: 'var(--color-electric)', fontWeight: 600 }}>
-                  Sisältää AI-sääkorjausta {dailyBiasKwh > 0 ? '+' : ''}{dailyBiasKwh.toFixed(2)} kWh
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', margin: '16px 16px 0 16px' }}>
+            <div style={{ 
+              backgroundColor: 'var(--color-bg-main)', 
+              padding: '12px 16px', 
+              borderRadius: '8px', 
+              border: '1px solid var(--color-border)', 
+              display: 'flex', 
+              justifyContent: 'space-between',
+              flexWrap: 'wrap', 
+              gap: '12px', 
+              fontSize: '0.85rem' 
+            }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                <span style={{ color: 'var(--color-text-muted)', fontSize: '0.7rem', textTransform: 'uppercase', fontWeight: 600 }}>Päivän Arvio</span>
+                <span style={{ fontWeight: 600, color: 'var(--color-text-main)' }}>
+                  {dailyPlannedKwh.toFixed(1)} kWh <span style={{ color: 'var(--color-text-technical)' }}>({formatEur(dailyPlannedSnt)})</span>
                 </span>
+                {dailyBiasKwh !== 0 && (
+                  <span style={{ fontSize: '0.7rem', color: 'var(--color-electric)', fontWeight: 600 }}>
+                    Sisältää AI-sääkorjausta {dailyBiasKwh > 0 ? '+' : ''}{dailyBiasKwh.toFixed(2)} kWh
+                  </span>
+                )}
+              </div>
+
+              {dailySummary?.wallet_mode && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                  <span style={{ color: 'var(--color-text-muted)', fontSize: '0.7rem', textTransform: 'uppercase', fontWeight: 600 }}>Teholompakko</span>
+                  <span style={{ 
+                    fontWeight: 600, 
+                    color: dailySummary.frost_flex_triggered ? 'var(--color-electric)' : 'var(--color-text-main)' 
+                  }}>
+                    {dailySummary.wallet_mode}
+                  </span>
+                  <span style={{ fontSize: '0.7rem', color: 'var(--color-text-technical)' }}>
+                    Kiintiö {Number(dailySummary.wallet_initial_allowance_kwh || 0).toFixed(1)} kWh (pohja {Number(dailySummary.mandatory_fan_kwh || 0).toFixed(1)} kWh)
+                  </span>
+                </div>
+              )}
+
+              {hasAnyRealized && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', textAlign: 'right' }}>
+                  <span style={{ color: 'var(--color-text-muted)', fontSize: '0.7rem', textTransform: 'uppercase', fontWeight: 600 }}>Toteutunut (tähän mennessä)</span>
+                  <span style={{ fontWeight: 600, color: 'var(--color-text-main)' }}>
+                    {dailyRealizedKwh.toFixed(1)} kWh <span style={{ color: 'var(--color-text-technical)' }}>({formatEur(dailyRealizedSnt)})</span>
+                  </span>
+                </div>
               )}
             </div>
-            {dailyRealizedKwh > 0 && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', textAlign: 'right' }}>
-                <span style={{ color: 'var(--color-text-muted)', fontSize: '0.7rem', textTransform: 'uppercase', fontWeight: 600 }}>Toteutunut (tähän mennessä)</span>
-                <span style={{ fontWeight: 600, color: 'var(--color-text-main)' }}>
-                  {dailyRealizedKwh.toFixed(1)} kWh <span style={{ color: 'var(--color-text-technical)' }}>({formatEur(dailyRealizedSnt)})</span>
-                </span>
-              </div>
+
+            {/* SIMULAATTORIN PÄIVÄKATSAUS (Lompakot, fysiikka, 48h tutka) */}
+            {(dailySummary || fallbackOverviewText) && (
+              <Accordion title="Simulaattorin päiväkatsaus & raja-arvot" iconName="BrainCircuit" defaultOpen={false}>
+                {dailySummary ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '0.8rem', color: 'var(--color-text-main)' }}>
+                    <div className="flex-between" style={{ borderBottom: '1px solid var(--color-lancia)', paddingBottom: '6px', gap: '8px', flexWrap: 'wrap' }}>
+                      <span style={{ color: 'var(--color-text-muted)' }}>Fysiikka-asetukset</span>
+                      <span style={{ fontWeight: 600 }}>
+                        Perus {dailySummary.normal_thermo_target_c}°C | Lataus {dailySummary.charge_target_c}°C | Patteripudotus {dailySummary.thermo_dropoff_c}°C
+                      </span>
+                    </div>
+
+                    <div className="flex-between" style={{ borderBottom: '1px solid var(--color-lancia)', paddingBottom: '6px', gap: '8px', flexWrap: 'wrap' }}>
+                      <span style={{ color: 'var(--color-text-muted)' }}>Hinta- ja mukavuusrajat</span>
+                      <span style={{ fontWeight: 600 }}>
+                        Katto {dailySummary.max_price_limit_snt} snt | Failsafe &le; {dailySummary.price_charge_limit_snt} snt | VIP-ale &le; {dailySummary.vip_discount_pct}% | Freeride {dailySummary.free_ride_pct}% ({dailySummary.free_ride_multiplier}x)
+                      </span>
+                    </div>
+
+                    <div className="flex-between" style={{ borderBottom: '1px solid var(--color-lancia)', paddingBottom: '6px', gap: '8px', flexWrap: 'wrap' }}>
+                      <span style={{ color: 'var(--color-text-muted)' }}>Eurolompakko & Aurinko</span>
+                      <span style={{ fontWeight: 600 }}>
+                        Käytettävissä {Number(dailySummary.euro_available_eur || 0).toFixed(2)} € (puskuri {Number(dailySummary.euro_reserve_eur || 0).toFixed(2)} €) | Aurinko: {dailySummary.solar_panels_active ? 'Aktiivinen' : 'Talvitelakka'}
+                      </span>
+                    </div>
+
+                    <div className="flex-between" style={{ borderBottom: '1px solid var(--color-lancia)', paddingBottom: '6px', gap: '8px', flexWrap: 'wrap' }}>
+                      <span style={{ color: 'var(--color-text-muted)' }}>48h Tutka & VIP-ostot</span>
+                      <span style={{ fontWeight: 600 }}>
+                        {dailySummary.radar_panic_mode ? 'HÄTÄLATAUS' : 'Normaali'}
+                        {dailySummary.radar_min_temp_c !== null && dailySummary.radar_min_temp_c !== undefined ? ` (ylihuomenna alin ${dailySummary.radar_min_temp_c}°C)` : ''}
+                        {' '}| Ostettu {(dailySummary.vip_purchased_hours || []).length}/{dailySummary.vip_target_hours}h
+                        {(dailySummary.vip_purchased_hours || []).length > 0 ? ` [${dailySummary.vip_purchased_hours.join(', ')}]` : ''}
+                      </span>
+                    </div>
+
+                    <div className="flex-between" style={{ borderBottom: '1px solid var(--color-lancia)', paddingBottom: '6px', gap: '8px', flexWrap: 'wrap' }}>
+                      <span style={{ color: 'var(--color-text-muted)' }}>Teholompakko (kWh)</span>
+                      <span style={{ fontWeight: 600 }}>
+                        Baseline {dailySummary.wallet_baseline_kwh} kWh &rarr; katto {dailySummary.wallet_daily_cap_kwh} kWh | Muu eläminen {dailySummary.wallet_baseload_kwh} kWh | fan_only {dailySummary.mandatory_fan_kwh} kWh | Lämmitysvara {dailySummary.heating_margin_after_fan_kwh} kWh
+                      </span>
+                    </div>
+
+                    <div className="flex-between" style={{ gap: '8px', flexWrap: 'wrap' }}>
+                      <span style={{ color: 'var(--color-text-muted)' }}>Tuntijakauma ({dailySummary.hours_count}h, ka. {dailySummary.window_avg_temp_c}°C)</span>
+                      <span style={{ fontWeight: 600 }}>
+                        VIP {dailySummary.hours_vip}h | Failsafe {dailySummary.hours_failsafe}h | ILP-ylläpito {dailySummary.hours_ilp_maint}h | Vapaamatkustus {dailySummary.hours_freeride}h | KL {dailySummary.hours_dh_total}h
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', lineHeight: '1.45' }}>
+                    {fallbackOverviewText}
+                  </div>
+                )}
+              </Accordion>
             )}
           </div>
         )}
@@ -564,7 +727,7 @@ export default function SchedulingTab() {
                   timeDisplay = `${startTimeStr} – ${endTimeStr}`;
                 }
 
-                const validPrices = group.schedules.map(s => s.price).filter(p => p !== null);
+                const validPrices = group.schedules.map(s => s.price).filter(p => p !== null && !Number.isNaN(p));
                 let priceDisplay = null;
                 if (validPrices.length === 1) {
                   priceDisplay = `${validPrices[0].toFixed(2)} c`;
@@ -593,30 +756,46 @@ export default function SchedulingTab() {
                   blockStats = `Toteutunut: ${realKwh} kWh (${realEur})`;
                 }
 
+                const decisionBadge = getDecisionBadgeMeta(group.decision_code);
+                const firstMeta = group.schedules[0]?.meta || {};
+                const lastMeta = group.schedules[group.schedules.length - 1]?.meta || {};
+
                 return (
                   <div key={index} style={{ 
-                    padding: group.isPast ? '0' : 'var(--padding-panel)',
+                    padding: '0',
                     borderRadius: '8px',
                     border: '1px solid var(--color-lancia)', 
-                    opacity: group.isPast && !group.isCurrentBlock ? 0.8 : 1,
+                    opacity: group.isPast && !group.isCurrentBlock ? 0.85 : 1,
                     backgroundColor: group.isCurrentBlock ? 'var(--color-surface)' : (group.isPast ? 'transparent' : 'var(--color-surface)'),
                     borderLeft: group.isCurrentBlock ? '4px solid var(--color-electric)' : '1px solid var(--color-lancia)',
                     boxShadow: group.isCurrentBlock ? 'var(--shadow-subtle)' : 'none',
                     display: 'flex',
                     flexDirection: 'column',
-                    gap: group.isPast ? '0' : '12px',
                     overflow: 'hidden'
                   }}>
                     
                     {/* Kortin Yläosa (Näkyy aina) */}
-                    <div style={{ padding: group.isPast ? 'var(--padding-panel)' : '0', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <div style={{ padding: 'var(--padding-panel)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                           <div style={{ fontWeight: 700, fontSize: '1.05rem', color: group.isCurrentBlock ? 'var(--color-electric)' : 'var(--color-text-main)' }}>
                             {timeDisplay}
                           </div>
                           {group.isCurrentBlock && (
                             <Badge label="Nyt" isActive={true} />
+                          )}
+                          {decisionBadge && (
+                            <span style={{ 
+                              fontSize: '0.7rem', 
+                              fontWeight: 600, 
+                              color: decisionBadge.color, 
+                              backgroundColor: 'var(--color-bg-clean)', 
+                              border: '1px solid var(--color-border)',
+                              padding: '2px 7px', 
+                              borderRadius: '4px' 
+                            }}>
+                              {decisionBadge.label}
+                            </span>
                           )}
                         </div>
                         
@@ -636,7 +815,7 @@ export default function SchedulingTab() {
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', fontSize: '0.85rem' }}>
                         {renderIlpMode(group.ilp_mode, group.ilp_target_temp)}
 
-                        {group.eve_thermo_target && (
+                        {group.eve_thermo_target !== null && group.eve_thermo_target !== undefined && (
                           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: 'var(--color-text-main)', backgroundColor: 'var(--color-bg-clean)', padding: '4px 8px', borderRadius: '4px', fontWeight: 600 }}>
                             <Thermometer size={14} className="text-muted" /> Termostaatit: {group.eve_thermo_target}°C
                           </span>
@@ -652,69 +831,97 @@ export default function SchedulingTab() {
                       {group.ai_reasoning && (
                         <div style={{ display: 'flex', gap: '6px', alignItems: 'flex-start', color: 'var(--color-text-muted)', fontSize: '0.85rem', lineHeight: '1.4', marginTop: '4px' }}>
                           <BrainCircuit size={16} className={group.isCurrentBlock ? "text-electric" : "text-muted"} style={{ flexShrink: 0, marginTop: '2px' }} />
-                          <span>{group.ai_reasoning}</span>
+                          <span style={{ whiteSpace: 'pre-line' }}>{group.ai_reasoning}</span>
                         </div>
                       )}
                     </div>
 
-                    {/* LAAJENNETTAVA ANALYYSI MENNEILLE TUNNEILLE */}
-                    {group.isPast && (
-                      <Accordion title="Analyysi ja Toteutuma" iconName="Cpu">
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', fontSize: '0.8rem', color: 'var(--color-text-main)' }}>
-                          
-                          {/* Fysiikkamallin arvio vs. Toteutuma */}
+                    {/* LAAJENNETTAVA ANALYYSI (Menneille ja tuleville tunneille) */}
+                    <Accordion title={group.isPast ? "Analyysi ja Toteutuma" : "Laskentatiedot ja hintavertailu"} iconName="Cpu">
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '0.8rem', color: 'var(--color-text-main)' }}>
+                        
+                        {/* Uudet hintavertailu- ja fysiikkaluvut */}
+                        {firstMeta.ilp_heat_price_snt !== undefined && firstMeta.dh_heat_price_snt !== undefined && (
                           <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--color-lancia)', paddingBottom: '8px' }}>
-                            <span style={{ color: 'var(--color-text-muted)' }}>Raaka-arvio (Fysiikka)</span>
-                            <span style={{ fontWeight: 600 }}>{group.raw_planned_kwh.toFixed(3)} kWh</span>
+                            <span style={{ color: 'var(--color-text-muted)' }}>Lämpöhinta (ILP vs. Kaukolämpö)</span>
+                            <span style={{ fontWeight: 600 }}>
+                              {Number(firstMeta.ilp_heat_price_snt).toFixed(2)} vs {Number(firstMeta.dh_heat_price_snt).toFixed(1)} snt/kWh
+                            </span>
                           </div>
-                          
-                          {group.ai_bias_correction_kwh !== 0 && (
-                            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--color-lancia)', paddingBottom: '8px' }}>
-                              <span style={{ color: 'var(--color-text-muted)' }}>Tekoälyn sääkorjaus</span>
-                              <span style={{ fontWeight: 600, color: 'var(--color-electric)' }}>{group.ai_bias_correction_kwh > 0 ? '+' : ''}{group.ai_bias_correction_kwh.toFixed(3)} kWh</span>
-                            </div>
-                          )}
+                        )}
 
+                        {lastMeta.virtual_temp_c !== undefined && (
                           <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--color-lancia)', paddingBottom: '8px' }}>
-                            <span style={{ color: 'var(--color-text-muted)' }}>Lopullinen arvio (Ennuste)</span>
-                            <span style={{ fontWeight: 600 }}>{group.planned_kwh.toFixed(3)} kWh</span>
+                            <span style={{ color: 'var(--color-text-muted)' }}>Laatan virtuaalilämpö / Ulkolämpö</span>
+                            <span style={{ fontWeight: 600 }}>
+                              {Number(lastMeta.virtual_temp_c).toFixed(2)}°C
+                              {firstMeta.outdoor_temp_c !== undefined ? ` / ${Number(firstMeta.outdoor_temp_c).toFixed(1)}°C` : ''}
+                            </span>
                           </div>
-                          
-                          {group.has_realized && (
-                            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--color-lancia)', paddingBottom: '8px' }}>
-                              <span style={{ color: 'var(--color-text-muted)' }}>Toteutunut kulutus</span>
-                              <span style={{ fontWeight: 600, color: group.realized_kwh > group.planned_kwh * 1.1 ? 'var(--color-rosso)' : 'var(--color-saab)' }}>
-                                {group.realized_kwh.toFixed(3)} kWh
-                              </span>
-                            </div>
-                          )}
+                        )}
 
-                          {/* Termostaattien Offsets (jos valittu eka tunti sisältää ne meta-datassa) */}
-                          {group.schedules[0]?.meta?.applied_targets && (
-                            <div style={{ marginTop: '8px', backgroundColor: 'var(--color-bg-main)', padding: '12px', borderRadius: '6px' }}>
-                              <div style={{ color: 'var(--color-text-technical)', textTransform: 'uppercase', fontSize: '0.7rem', fontWeight: 600, marginBottom: '8px' }}>Huonekohtainen ohjaus</div>
-                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                                {Object.entries(group.schedules[0].meta.applied_targets).map(([room, target]) => {
-                                  const aiOffset = group.schedules[0].meta.ai_offsets_used?.[room];
-                                  const manualOffset = group.schedules[0].meta.manual_offsets_used?.[room];
-                                  let offsetText = '';
-                                  if (manualOffset) offsetText = `(Käsin: ${manualOffset})`;
-                                  else if (aiOffset) offsetText = `(AI: ${aiOffset})`;
+                        {lastMeta.wallet_kwh_remaining !== undefined && (
+                          <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--color-lancia)', paddingBottom: '8px' }}>
+                            <span style={{ color: 'var(--color-text-muted)' }}>Teholompakon lisävara jäljellä</span>
+                            <span style={{ fontWeight: 600 }}>
+                              {Number(lastMeta.wallet_kwh_remaining).toFixed(2)} kWh
+                              {lastMeta.wallet_mode ? ` (${lastMeta.wallet_mode})` : ''}
+                            </span>
+                          </div>
+                        )}
 
-                                  return (
-                                    <div key={room} style={{ display: 'flex', gap: '4px', backgroundColor: 'var(--color-surface)', padding: '4px 8px', borderRadius: '4px', border: '1px solid var(--color-border)' }}>
-                                      <span style={{ color: 'var(--color-text-muted)', textTransform: 'capitalize' }}>{room}:</span>
-                                      <span style={{ fontWeight: 600 }}>{parseFloat(target).toFixed(1)}°C {offsetText && <span style={{ fontSize: '0.7rem', color: 'var(--color-electric)', fontWeight: 'normal' }}>{offsetText}</span>}</span>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          )}
-
+                        {/* Fysiikkamallin arvio vs. Toteutuma */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--color-lancia)', paddingBottom: '8px' }}>
+                          <span style={{ color: 'var(--color-text-muted)' }}>Raaka-arvio (Fysiikka)</span>
+                          <span style={{ fontWeight: 600 }}>{group.raw_planned_kwh.toFixed(3)} kWh</span>
                         </div>
-                      </Accordion>
-                    )}
+                        
+                        {group.ai_bias_correction_kwh !== 0 && (
+                          <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--color-lancia)', paddingBottom: '8px' }}>
+                            <span style={{ color: 'var(--color-text-muted)' }}>Tekoälyn sääkorjaus</span>
+                            <span style={{ fontWeight: 600, color: 'var(--color-electric)' }}>{group.ai_bias_correction_kwh > 0 ? '+' : ''}{group.ai_bias_correction_kwh.toFixed(3)} kWh</span>
+                          </div>
+                        )}
+
+                        <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--color-lancia)', paddingBottom: '8px' }}>
+                          <span style={{ color: 'var(--color-text-muted)' }}>Lopullinen arvio (Ennuste)</span>
+                          <span style={{ fontWeight: 600 }}>{group.planned_kwh.toFixed(3)} kWh</span>
+                        </div>
+                        
+                        {group.has_realized && (
+                          <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--color-lancia)', paddingBottom: '8px' }}>
+                            <span style={{ color: 'var(--color-text-muted)' }}>Toteutunut kulutus</span>
+                            <span style={{ fontWeight: 600, color: group.realized_kwh > group.planned_kwh * 1.1 ? 'var(--color-rosso)' : 'var(--color-saab)' }}>
+                              {group.realized_kwh.toFixed(3)} kWh
+                            </span>
+                          </div>
+                        )}
+
+                        {/* Termostaattien Offsets (jos tunti sisältää ne meta-datassa) */}
+                        {firstMeta.applied_targets && (
+                          <div style={{ marginTop: '4px', backgroundColor: 'var(--color-bg-main)', padding: '12px', borderRadius: '6px' }}>
+                            <div style={{ color: 'var(--color-text-technical)', textTransform: 'uppercase', fontSize: '0.7rem', fontWeight: 600, marginBottom: '8px' }}>Huonekohtainen ohjaus</div>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                              {Object.entries(firstMeta.applied_targets).map(([room, target]) => {
+                                const aiOffset = firstMeta.ai_offsets_used?.[room];
+                                const manualOffset = firstMeta.manual_offsets_used?.[room];
+                                let offsetText = '';
+                                if (manualOffset !== null && manualOffset !== undefined) offsetText = `(Käsin: ${manualOffset})`;
+                                else if (aiOffset !== null && aiOffset !== undefined && Number(aiOffset) !== 0) offsetText = `(AI: ${aiOffset})`;
+
+                                return (
+                                  <div key={room} style={{ display: 'flex', gap: '4px', backgroundColor: 'var(--color-surface)', padding: '4px 8px', borderRadius: '4px', border: '1px solid var(--color-border)' }}>
+                                    <span style={{ color: 'var(--color-text-muted)', textTransform: 'capitalize' }}>{room}:</span>
+                                    <span style={{ fontWeight: 600 }}>{parseFloat(target).toFixed(1)}°C {offsetText && <span style={{ fontSize: '0.7rem', color: 'var(--color-electric)', fontWeight: 'normal' }}>{offsetText}</span>}</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+
+                      </div>
+                    </Accordion>
 
                   </div>
                 );
@@ -762,6 +969,8 @@ export default function SchedulingTab() {
                     }
                     
                     const hasOffset = prof.required_offset !== null && prof.required_offset > 0;
+                    const profMeta = safeParseObject(prof.meta);
+                    const hasCop = profMeta.cop_heat !== undefined && profMeta.cop_heat !== null;
                     
                     return (
                       <div key={cat} className="flex-between smooth-transition" style={{ 
@@ -783,6 +992,12 @@ export default function SchedulingTab() {
                               +{prof.required_offset}°C offset
                             </div>
                           )}
+                          {hasCop && (
+                            <div className="text-technical" style={{ fontSize: '0.7rem' }}>
+                              COP {Number(profMeta.cop_heat).toFixed(1)}
+                              {profMeta.heating_speed_c_per_h ? ` | +${Number(profMeta.heating_speed_c_per_h).toFixed(2)}°C/h` : ''}
+                            </div>
+                          )}
                         </div>
                       </div>
                     );
@@ -797,10 +1012,10 @@ export default function SchedulingTab() {
         <section className="ui-panel" style={{ padding: 'var(--padding-panel)', display: 'flex', flexDirection: 'column' }}>
           <div className="mb-2">
             <h3 className="text-title flex-row-gap mb-1" style={{ fontSize: '0.95rem' }}>
-              <Sun size={16} className="text-saab" /> Tuotto-odotus (30 pv)
+              <Sun size={16} className="text-saab" /> Tuotto-odotus ({effectiveSolarMonthName})
             </h3>
             <p className="text-muted" style={{ margin: 0, fontSize: '0.8rem' }}>
-              Malli aurinkopaneelien tuotosta eri pilvisyyksillä.
+              Malli aurinkopaneelien tuotosta eri pilvisyyksillä ({effectiveSolarMonthName}).
             </p>
           </div>
 
@@ -812,17 +1027,17 @@ export default function SchedulingTab() {
                   borderBottom: i === activeSolarProfiles.length - 1 ? 'none' : '1px solid var(--color-lancia)'
                 }}>
                   <div className="flex-row-gap">
-                    <Sun size={14} className={sp.max_solar_power_w > 1000 ? "text-saab" : "text-muted"} />
+                    <Sun size={14} className={Number(sp.max_solar_power_w) > 1000 ? "text-saab" : "text-muted"} />
                     <span style={{ fontWeight: 600, color: 'var(--color-text-main)', fontSize: '0.8rem' }}>
                       {cleanCategoryName(getCloudName(sp.cloud))}
                     </span>
                   </div>
                   <div className="text-right">
                     <div style={{ color: 'var(--color-saab)', fontWeight: 700, fontSize: '0.95rem' }}>
-                      {formatNumber(sp.max_solar_power_w)} W <span className="text-muted" style={{ fontSize: '0.7rem', fontWeight: 500 }}>(Max)</span>
+                      {formatWatts(sp.max_solar_power_w)} W <span className="text-muted" style={{ fontSize: '0.7rem', fontWeight: 500 }}>(Max)</span>
                     </div>
                     <div className="text-technical" style={{ fontSize: '0.75rem' }}>
-                      {formatNumber(sp.avg_solar_power_w)} W <span style={{ fontSize: '0.7rem' }}>(KA)</span>
+                      {formatWatts(sp.avg_solar_power_w)} W <span style={{ fontSize: '0.7rem' }}>(KA)</span>
                     </div>
                   </div>
                 </div>
