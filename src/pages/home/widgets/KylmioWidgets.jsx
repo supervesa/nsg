@@ -3,7 +3,7 @@ import WidgetSmall from '../../../components/common/WidgetSmall';
 import WidgetNormal from '../../../components/common/WidgetNormal';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 
-export const meta = { order: 4 };
+export const meta = { order: 21 };
 
 // Apufunktio kylmiön tilan laskentaan (4 tunnin / 24 rivin ikkuna)
 const getKylmioHealth = (data) => {

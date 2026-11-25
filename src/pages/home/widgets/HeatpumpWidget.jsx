@@ -2,7 +2,7 @@ import React from 'react';
 import WidgetSmall from '../../../components/common/WidgetSmall';
 import WidgetNormal from '../../../components/common/WidgetNormal';
 
-export const meta = { order: 3 };
+export const meta = { order: 31 };
 
 // Apufunktiot suomennoksiin
 const getHeatpumpStateName = (state) => {

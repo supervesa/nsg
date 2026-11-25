@@ -2,7 +2,7 @@ import React from 'react';
 import { Sun } from 'lucide-react';
 
 export const meta = {
-  order: 1 // Järjestys ylärivillä (pienin vasemmalle)
+  order: 33 // Järjestys ylärivillä (pienin vasemmalle)
 };
 
 export default function SolarGlance({ data }) {

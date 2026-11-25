@@ -8,7 +8,7 @@ import Paragraph from '../../../components/common/Paragraph';
 import { BrainCircuit, Cpu, ThermometerSun, Wallet, Coins, Zap, Thermometer } from 'lucide-react';
 
 export const meta = { 
-  order: 9, 
+  order: 10, 
   title: 'AI-Ohjaus',
   id: 'ai_control'
 };

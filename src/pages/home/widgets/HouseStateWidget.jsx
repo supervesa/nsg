@@ -2,7 +2,7 @@ import React from 'react';
 import WidgetSmall from '../../../components/common/WidgetSmall';
 import WidgetNormal from '../../../components/common/WidgetNormal';
 
-export const meta = { order: 2 };
+export const meta = { order: 50 };
 
 // Tämä ominaisuus ei ehkä tarvitse pientä widgettiä lainkaan?
 // Jos haluat sen yläriville, aktivoi tämä. Jos poistat koko funktioblokin, se ei näy ylärivillä!

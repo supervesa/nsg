@@ -2,10 +2,10 @@ import React from 'react';
 import WidgetSmall from '../../../components/common/WidgetSmall';
 import { TrendingDown, TrendingUp, Zap, Car } from 'lucide-react';
 
-export const meta = { order: 7 };
+export const meta = { order: 35 };
 
 // Yhteiset asetukset
-const SLOT_HOURS = 6;
+const SLOT_HOURS = 20;
 const CHARGE_POWER_KW = 11; // 11 kW 3-vaihelataus
 
 // Yhteinen apufunktio latausikkunan etsimiseen

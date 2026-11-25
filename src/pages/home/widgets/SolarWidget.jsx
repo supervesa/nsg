@@ -2,7 +2,7 @@ import React from 'react';
 import WidgetSmall from '../../../components/common/WidgetSmall';
 import WidgetNormal from '../../../components/common/WidgetNormal';
 
-export const meta = { order: 1 };
+export const meta = { order: 23 };
 
 // --- YLÄRIVIN PIENI WIDGET ---
 export function SmallWidget({ data }) {

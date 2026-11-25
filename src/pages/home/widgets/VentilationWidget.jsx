@@ -5,7 +5,7 @@ import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'rec
 import { Clock, Zap } from 'lucide-react';
 
 export const meta = { 
-  order: 6, 
+  order: 22, 
   title: 'Ilmanvaihto',
   id: 'ventilation'
 };

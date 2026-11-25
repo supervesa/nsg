@@ -1,7 +1,7 @@
 import React from 'react';
 import WidgetSmall from '../../../components/common/WidgetSmall';
 
-export const meta = { order: 6 };
+export const meta = { order:40 };
 
 // --- YLÄRIVIN PIENI WIDGET ---
 export function SmallWidget({ data }) {
